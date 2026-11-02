@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>المهام — نظام إدارة الأعمال</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <link rel="stylesheet" href="assets/css/style.css" />
+
+  <style>
+    .task-grid-card {
+      background: var(--bg-card); border: 1px solid var(--border-color);
+      border-radius: 12px; padding: 18px; margin-bottom: 14px; transition: all 0.2s;
+    }
+    .task-grid-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+    .task-status-badge { padding: 3px 10px; border-radius: 15px; font-size: 11px; font-weight: 600; }
+    .ts-new { background: rgba(13,110,253,0.15); color: #0d6efd; }
+    .ts-assigned { background: rgba(108,117,125,0.15); color: #6c757d; }
+    .ts-progress { background: rgba(255,193,7,0.15); color: #ffc107; }
+    .ts-review { background: rgba(23,162,184,0.15); color: #17a2b8; }
+    .ts-completed { background: rgba(40,167,69,0.15); color: #28a745; }
+    .ts-rejected { background: rgba(220,53,69,0.15); color: #dc3545; }
+    .ts-overdue { background: rgba(220,53,69,0.25); color: #dc3545; font-weight: 700; }
+    .priority-high { color: #dc3545; }
+    .priority-medium { color: #ffc107; }
+    .priority-low { color: #28a745; }
+    .emp-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--color-primary); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; margin-right: -8px; border: 2px solid var(--bg-card);
+    }
+    .filter-tab {
+      padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.2s; border: 1px solid var(--border-color);
+    }
+    .filter-tab.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar-overlay"></div>
+  <aside id="sidebar"></aside>
+
+  <div id="main-content">
+    <header id="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+        <h1 class="page-title">إدارة المهام</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn theme-toggle" id="themeToggle"><i class="fas fa-moon"></i></button>
+        <button class="icon-btn" id="logoutBtn"><i class="fas fa-sign-out-alt"></i></button>
+      </div>
+    </header>
+
+    <section id="workspace">
+
+      <!-- فلاتر -->
+      <div class="d-flex gap-2 flex-wrap mb-3" id="statusFilters">
+        <span class="filter-tab active" data-filter="all">الكل</span>
+        <span class="filter-tab" data-filter="new">جديدة</span>
+        <span class="filter-tab" data-filter="assigned">مُسندة</span>
+        <span class="filter-tab" data-filter="in_progress">قيد التنفيذ</span>
+        <span class="filter-tab" data-filter="under_review">قيد المراجعة</span>
+        <span class="filter-tab" data-filter="completed">مكتملة</span>
+        <span class="filter-tab" data-filter="overdue">متأخرة</span>
+      </div>
+
+      <!-- شريط الإجراءات -->
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div class="d-flex gap-2 align-items-center">
+          <input type="text" class="form-control" id="searchInput" placeholder="بحث في المهام..." style="width:250px;" />
+          <select class="form-select" id="employeeFilter" style="width:180px;">
+            <option value="">كل الموظفين</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="addTaskBtn" data-action-permission="canAssignTasks">
+          <i class="fas fa-plus me-2"></i>مهمة جديدة
+        </button>
+      </div>
+
+      <!-- قائمة المهام -->
+      <div id="tasksList">
+        <div class="text-center py-5 text-muted">
+          <i class="fas fa-tasks fa-3x mb-3"></i>
+          <p>جاري تحميل المهام...</p>
+        </div>
+      </div>
+
+    </section>
+  </div>
+
+  <!-- مودال المهمة -->
+  <div class="modal fade" id="taskModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="taskModalTitle">مهمة جديدة</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="taskForm">
+            <input type="hidden" id="taskId" />
+            <div class="mb-3">
+              <label class="form-label">عنوان المهمة *</label>
+              <input type="text" class="form-control" id="taskTitle" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">الوصف</label>
+              <textarea class="form-control" id="taskDescription" rows="3"></textarea>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">الطلب المرتبط (اختياري)</label>
+                <select class="form-select" id="taskOrder">
+                  <option value="">بدون طلب</option>
+                </select>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">الموعد النهائي *</label>
+                <input type="date" class="form-control" id="taskDeadline" required />
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">الموظفون المسندون *</label>
+              <div id="employeeCheckboxes" class="border rounded p-3" style="max-height:150px; overflow-y:auto;">
+                <p class="text-muted small mb-0">جاري تحميل الموظفين...</p>
+              </div>
+              <small class="text-muted">يمكنك تعيين عدة موظفين لنفس المهمة</small>
+            </div>
+            <div class="row">
+              <div class="col-md-4 mb-3">
+                <label class="form-label">الأولوية</label>
+                <select class="form-select" id="taskPriority">
+                  <option value="low">منخفضة</option>
+                  <option value="medium" selected>متوسطة</option>
+                  <option value="high">عالية</option>
+                  <option value="urgent">عاجلة</option>
+                </select>
+              </div>
+              <div class="col-md-4 mb-3">
+                <label class="form-label">التعويض</label>
+                <input type="number" class="form-control" id="taskCompensation" step="0.01" min="0" placeholder="0.00" />
+              </div>
+              <div class="col-md-4 mb-3">
+                <label class="form-label">الحالة</label>
+                <select class="form-select" id="taskStatus">
+                  <option value="new">جديدة</option>
+                  <option value="assigned">مُسندة</option>
+                  <option value="in_progress">قيد التنفيذ</option>
+                </select>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">ملاحظات داخلية</label>
+              <textarea class="form-control" id="taskNotes" rows="2"></textarea>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+          <button type="button" class="btn btn-primary" id="saveTaskBtn">
+            <i class="fas fa-save me-2"></i>حفظ
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+        "firebase/storage": "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js"
+      }
+    }
+  </script>
+
+  <script type="module" src="assets/js/firebase-config.js"></script>
+  <script type="module" src="assets/js/pages/tasks.js"></script>
+
+</body>
+</html>

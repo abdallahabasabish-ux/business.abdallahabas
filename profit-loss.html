@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>الأرباح والخسائر — نظام إدارة الأعمال</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    .filter-btn { padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); transition: all 0.2s; }
+    .filter-btn.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+    .pl-section { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .pl-section h5 { margin-bottom: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .pl-section h5 i { color: var(--color-primary); }
+    .pl-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); }
+    .pl-row:last-child { border-bottom: none; }
+    .pl-row .label { color: var(--text-muted); }
+    .pl-row .value { font-weight: 700; }
+    .pl-total { background: var(--color-primary); color: #fff; padding: 16px 20px; border-radius: 10px; margin-top: 12px; }
+    .pl-total .label { color: rgba(255,255,255,0.8); }
+    .pl-total .value { font-size: 24px; font-weight: 700; }
+    .change-pos { color: #28a745; }
+    .change-neg { color: #dc3545; }
+  </style>
+</head>
+<body>
+  <div id="sidebar-overlay"></div>
+  <aside id="sidebar"></aside>
+
+  <div id="main-content">
+    <header id="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+        <h1 class="page-title">تقرير الأرباح والخسائر</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn theme-toggle" id="themeToggle"><i class="fas fa-moon"></i></button>
+        <button class="icon-btn" id="logoutBtn"><i class="fas fa-sign-out-alt"></i></button>
+      </div>
+    </header>
+
+    <section id="workspace">
+      <!-- فلاتر زمنية -->
+      <div class="d-flex gap-2 flex-wrap mb-4">
+        <span class="filter-btn" data-period="7">7 أيام</span>
+        <span class="filter-btn active" data-period="30">30 يوم</span>
+        <span class="filter-btn" data-period="90">90 يوم</span>
+        <span class="filter-btn" data-period="365">سنة</span>
+        <span class="filter-btn" data-period="all">الكل</span>
+        <div class="d-flex gap-2 align-items-center ms-3">
+          <input type="date" class="form-control form-control-sm" id="dateFrom" style="width:140px;" />
+          <span>إلى</span>
+          <input type="date" class="form-control form-control-sm" id="dateTo" style="width:140px;" />
+          <button class="btn btn-sm btn-primary" id="applyCustomDate">تطبيق</button>
+        </div>
+      </div>
+
+      <div id="plLoading" class="text-center py-5">
+        <div class="spinner-border text-primary"></div>
+        <p class="mt-3 text-muted">جاري حساب الأرقام المالية...</p>
+      </div>
+
+      <div id="plContent" style="display:none;">
+        <!-- ملخص سريع -->
+        <div class="row g-3 mb-4">
+          <div class="col-md-3 col-6">
+            <div class="pl-section text-center">
+              <h5 style="justify-content:center;"><i class="fas fa-chart-line"></i></h5>
+              <div class="text-muted small">الإيراد المحقق</div>
+              <div class="fw-bold fs-4" id="kpiEarned">$0</div>
+              <small class="change-pos" id="changeEarned"></small>
+            </div>
+          </div>
+          <div class="col-md-3 col-6">
+            <div class="pl-section text-center">
+              <h5 style="justify-content:center;"><i class="fas fa-dollar-sign"></i></h5>
+              <div class="text-muted small">النقد المحصّل</div>
+              <div class="fw-bold fs-4 text-success" id="kpiCollected">$0</div>
+              <small class="text-muted" id="kpiPending"></small>
+            </div>
+          </div>
+          <div class="col-md-3 col-6">
+            <div class="pl-section text-center">
+              <h5 style="justify-content:center;"><i class="fas fa-money-bill-wave"></i></h5>
+              <div class="text-muted small">إجمالي المصروفات</div>
+              <div class="fw-bold fs-4 text-danger" id="kpiExpenses">$0</div>
+              <small class="change-neg" id="changeExpenses"></small>
+            </div>
+          </div>
+          <div class="col-md-3 col-6">
+            <div class="pl-section text-center">
+              <h5 style="justify-content:center;"><i class="fas fa-piggy-bank"></i></h5>
+              <div class="text-muted small">صافي الربح</div>
+              <div class="fw-bold fs-4" id="kpiNetProfit">$0</div>
+              <small class="text-muted" id="kpiMargin"></small>
+            </div>
+          </div>
+        </div>
+
+        <!-- تفصيل الإيرادات -->
+        <div class="pl-section">
+          <h5><i class="fas fa-arrow-up"></i> الإيرادات</h5>
+          <div class="pl-row"><span class="label">الإيراد المحقق (الطلبات غير الملغاة)</span><span class="value text-success" id="revEarned">$0</span></div>
+          <div class="pl-row"><span class="label">النقد المحصّل (المدفوعات المعتمدة)</span><span class="value" id="revCollected">$0</span></div>
+          <div class="pl-row"><span class="label">مبالغ معلّقة (بانتظار الاعتماد)</span><span class="value text-warning" id="revPending">$0</span></div>
+          <div class="pl-row"><span class="label">مستحقات غير محصّلة (ذمم مدينة)</span><span class="value text-danger" id="revOutstanding">$0</span></div>
+          <div class="pl-row"><span class="label">الخصومات الممنوحة</span><span class="value" id="revDiscounts">$0</span></div>
+        </div>
+
+        <!-- تفصيل المصروفات -->
+        <div class="pl-section">
+          <h5><i class="fas fa-arrow-down"></i> المصروفات حسب الفئة</h5>
+          <div id="expensesBreakdown"><p class="text-muted">جاري التحميل...</p></div>
+        </div>
+
+        <!-- تفصيل تعويضات الموظفين -->
+        <div class="pl-section">
+          <h5><i class="fas fa-users"></i> تعويضات الموظفين</h5>
+          <div class="pl-row"><span class="label">أرباح المهام المعتمدة</span><span class="value" id="empEarnings">$0</span></div>
+          <div class="pl-row"><span class="label">مكافآت</span><span class="value" id="empBonuses">$0</span></div>
+          <div class="pl-row"><span class="label">خصومات</span><span class="value text-danger" id="empDeductions">$0</span></div>
+          <div class="pl-row"><span class="label">مدفوعات للموظفين</span><span class="value" id="empPayouts">$0</span></div>
+          <div class="pl-row"><span class="label">إجمالي التعويضات (أرباح + مكافآت - خصومات)</span><span class="value" id="empTotal">$0</span></div>
+          <div class="pl-row"><span class="label">مستحقات غير مدفوعة (ذمم دائنة)</span><span class="value text-warning" id="empPayable">$0</span></div>
+        </div>
+
+        <!-- الخزينة -->
+        <div class="pl-section">
+          <h5><i class="fas fa-wallet"></i> حركة الخزينة</h5>
+          <div class="pl-row"><span class="label">إيداعات</span><span class="value text-success" id="treasuryDeposits">$0</span></div>
+          <div class="pl-row"><span class="label">سحوبات</span><span class="value text-danger" id="treasuryWithdrawals">$0</span></div>
+          <div class="pl-row"><span class="label">تحويلات</span><span class="value" id="treasuryTransfers">$0</span></div>
+          <div class="pl-row"><span class="label">رصيد الخزينة</span><span class="value fw-bold" id="treasuryBalance">$0</span></div>
+        </div>
+
+        <!-- الخلاصة -->
+        <div class="pl-section">
+          <h5><i class="fas fa-calculator"></i> الخلاصة المالية</h5>
+          <div class="pl-row"><span class="label">إجمالي الإيراد المحقق</span><span class="value" id="sumEarned">$0</span></div>
+          <div class="pl-row"><span class="label">(-) إجمالي المصروفات</span><span class="value text-danger" id="sumExpenses">$0</span></div>
+          <div class="pl-row"><span class="label">(-) تعويضات الموظفين</span><span class="value text-danger" id="sumEmployee">$0</span></div>
+          <div class="pl-total">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="label">صافي الربح</span>
+              <span class="value" id="sumNetProfit">$0</span>
+            </div>
+            <div class="d-flex justify-content-between mt-2">
+              <span class="label">هامش الربح</span>
+              <span class="value" id="sumMargin">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- رسم بياني -->
+        <div class="pl-section">
+          <h5><i class="fas fa-chart-pie"></i> توزيع المصروفات</h5>
+          <canvas id="expensesChart" height="200"></canvas>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script type="importmap">
+    { "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+      "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+      "firebase/storage": "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js"
+    } }
+  </script>
+  <script type="module" src="assets/js/firebase-config.js"></script>
+  <script type="module" src="assets/js/pages/profit-loss.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>بوابة العميل — طلباتي</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <link rel="stylesheet" href="assets/css/style.css" />
+
+  <style>
+    .portal-header {
+      background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+      color: #fff;
+      padding: 20px 28px;
+      border-radius: 14px;
+      margin-bottom: 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 16px;
+    }
+    .portal-nav { display:flex; gap:8px; flex-wrap:wrap; }
+    .portal-nav a {
+      color:#fff; text-decoration:none; padding:8px 18px;
+      border-radius:8px; background:rgba(255,255,255,0.15);
+      font-size:14px; font-weight:600; transition:all 0.2s;
+    }
+    .portal-nav a:hover, .portal-nav a.active { background:rgba(255,255,255,0.3); }
+    .order-card {
+      background: var(--bg-card); border: 1px solid var(--border-color);
+      border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    }
+    .order-status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .status-new { background: rgba(13,110,253,0.15); color: #0d6efd; }
+    .status-progress { background: rgba(255,193,7,0.15); color: #ffc107; }
+    .status-complete { background: rgba(40,167,69,0.15); color: #28a745; }
+    .status-cancelled { background: rgba(220,53,69,0.15); color: #dc3545; }
+    .progress-tracker { display: flex; gap: 4px; margin: 12px 0; }
+    .progress-step {
+      flex: 1; height: 6px; border-radius: 3px;
+      background: var(--bg-input); transition: all 0.3s;
+    }
+    .progress-step.done { background: var(--color-primary); }
+  </style>
+</head>
+<body>
+
+  <div id="portalLoading" style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+    <div class="text-center">
+      <div class="spinner-border text-primary"></div>
+      <p class="mt-3 text-muted">جاري التحميل...</p>
+    </div>
+  </div>
+
+  <div id="portalContent" style="display:none; max-width:1000px; margin:0 auto; padding:20px;">
+
+    <div class="portal-header">
+      <h2 style="margin:0; font-weight:700;"><i class="fas fa-box"></i> طلباتي</h2>
+      <div class="portal-nav">
+        <a href="portal-dashboard.html">لوحتي</a>
+        <a href="portal-orders.html" class="active">طلباتي</a>
+        <a href="portal-payments.html">مدفوعاتي</a>
+        <a href="#" id="portalLogoutBtn"><i class="fas fa-sign-out-alt"></i></a>
+      </div>
+    </div>
+
+    <!-- طلب خدمة جديدة -->
+    <div class="order-card" id="newRequestCard" style="display:none;">
+      <h5 class="mb-3"><i class="fas fa-paper-plane"></i> طلب خدمة جديدة</h5>
+      <form id="newOrderForm">
+        <div class="mb-3">
+          <label class="form-label">الخدمة المطلوبة</label>
+          <select class="form-select" id="serviceSelect" required>
+            <option value="">اختر خدمة...</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">وصف الطلب</label>
+          <textarea class="form-control" id="orderDescription" rows="3"
+            placeholder="اشرح ما تحتاجه بالتفصيل..." required></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">الموعد المتوقع (اختياري)</label>
+          <input type="date" class="form-control" id="expectedDate" />
+        </div>
+        <button type="submit" class="btn btn-primary" id="submitOrderBtn">
+          <i class="fas fa-paper-plane me-2"></i>إرسال الطلب
+        </button>
+        <button type="button" class="btn btn-outline-secondary" id="cancelNewOrderBtn">إلغاء</button>
+      </form>
+    </div>
+
+    <!-- زر طلب جديد -->
+    <div class="text-end mb-3" id="newOrderBtnContainer">
+      <button class="btn btn-primary" id="showNewOrderBtn">
+        <i class="fas fa-plus me-2"></i>طلب خدمة جديدة
+      </button>
+    </div>
+
+    <!-- قائمة الطلبات -->
+    <div id="ordersList">
+      <p class="text-muted text-center py-3">جاري تحميل طلباتك...</p>
+    </div>
+
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+        "firebase/storage": "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js"
+      }
+    }
+  </script>
+
+  <script type="module" src="assets/js/firebase-config.js"></script>
+  <script type="module" src="assets/js/portal-orders.js"></script>
+
+</body>
+</html>

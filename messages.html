@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>المراسلة — نظام إدارة الأعمال</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    .msg-layout { display:flex; gap:16px; height:calc(100vh - 200px); min-height:500px; }
+    .conv-list { width:300px; flex-shrink:0; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; overflow-y:auto; }
+    .conv-item { padding:14px 16px; border-bottom:1px solid var(--border-color); cursor:pointer; transition:all 0.2s; }
+    .conv-item:hover { background:var(--bg-input); }
+    .conv-item.active { background:rgba(255,102,0,0.08); border-right:3px solid var(--color-primary); }
+    .conv-item .name { font-weight:700; font-size:14px; }
+    .conv-item .preview { font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .conv-item .time { font-size:11px; color:var(--text-muted); }
+    .conv-item .unread { display:inline-block; width:8px; height:8px; border-radius:50%; background:#dc3545; margin-right:6px; }
+    .msg-panel { flex:1; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; display:flex; flex-direction:column; }
+    .msg-header { padding:14px 18px; border-bottom:1px solid var(--border-color); }
+    .msg-body { flex:1; overflow-y:auto; padding:18px; }
+    .msg-input { padding:14px 18px; border-top:1px solid var(--border-color); }
+    .msg-bubble { max-width:70%; padding:10px 16px; border-radius:14px; margin-bottom:10px; word-wrap:break-word; }
+    .msg-sent { background:var(--color-primary); color:#fff; margin-right:auto; border-bottom-left-radius:4px; }
+    .msg-received { background:var(--bg-input); color:var(--text-primary); margin-left:auto; border-bottom-right-radius:4px; }
+    .msg-time { font-size:11px; color:var(--text-muted); margin-top:4px; }
+    @media (max-width:768px) { .msg-layout { flex-direction:column; height:auto; } .conv-list { width:100%; max-height:200px; } }
+  </style>
+</head>
+<body>
+  <div id="sidebar-overlay"></div>
+  <aside id="sidebar"></aside>
+
+  <div id="main-content">
+    <header id="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+        <h1 class="page-title">المراسلة</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn theme-toggle" id="themeToggle"><i class="fas fa-moon"></i></button>
+        <button class="icon-btn" id="logoutBtn"><i class="fas fa-sign-out-alt"></i></button>
+      </div>
+    </header>
+
+    <section id="workspace">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <input type="text" class="form-control" id="convSearch" placeholder="بحث في المحادثات..." style="width:250px;" />
+        <button class="btn btn-primary" id="newConvBtn"><i class="fas fa-plus me-2"></i>محادثة جديدة</button>
+      </div>
+
+      <div class="msg-layout">
+        <div class="conv-list" id="convList">
+          <p class="text-muted text-center py-4">جاري التحميل...</p>
+        </div>
+        <div class="msg-panel" id="msgPanel">
+          <div class="msg-body text-center text-muted py-5">
+            <i class="fas fa-comments fa-3x mb-3"></i>
+            <p>اختر محادثة لعرض الرسائل</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- مودال محادثة جديدة -->
+  <div class="modal fade" id="newConvModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">محادثة جديدة</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">العميل *</label>
+            <select class="form-select" id="newConvCustomer" required></select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">الموضوع</label>
+            <input type="text" class="form-control" id="newConvSubject" placeholder="موضوع المحادثة..." />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">طلب مرتبط (اختياري)</label>
+            <select class="form-select" id="newConvOrder">
+              <option value="">بدون طلب</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">الرسالة الأولى *</label>
+            <textarea class="form-control" id="newConvMessage" rows="3" required></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+          <button type="button" class="btn btn-primary" id="createConvBtn"><i class="fas fa-paper-plane me-2"></i>إنشاء وإرسال</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    { "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+      "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+      "firebase/storage": "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js"
+    } }
+  </script>
+  <script type="module" src="assets/js/firebase-config.js"></script>
+  <script type="module" src="assets/js/pages/messages.js"></script>
+</body>
+</html>

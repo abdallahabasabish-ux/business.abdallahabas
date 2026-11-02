@@ -1,0 +1,515 @@
+// ============================================================
+// firestore.rules — قواعد أمان Firestore لنظام CRM
+// ============================================================
+// المرحلة الثانية: سلامة البيانات والمعمارية
+//
+// هذه القواعد هي خط الدفاع الأساسي بدون Cloud Functions
+// (Firebase Spark Plan — مجاني بالكامل)
+//
+// المبادئ:
+// 1. المصادقة إلزامية لكل العمليات
+// 2. الأدوار من مجموعة users (role + permissions map)
+// 3. التحقق من الصلاحيات الدقيقة لكل عملية
+// 4. حماية الحقول المالية الحساسة
+// 5. سير التحقق من المدفوعات (pending → approved)
+// 6. سجل النشاطات append-only (لا تعديل ولا حذف)
+// 7. العملاء يصلون لسجلاتهم فقط
+// 8. التوافق الرجعي: السجلات التراثية بلا uid تُعامَل بالقواعد الافتراضية
+// ============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // دوال مساعدة عامة (Helper Functions)
+    // ============================================================
+
+    // المستخدم مسجّل الدخول
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // معرّف المستخدم الحالي
+    function currentUid() {
+      return request.auth.uid;
+    }
+
+    // وثيقة المستخدم الحالي من مجموعة users
+    // (تكلفة: قراءة واحدة، مُخزَّنة مؤقتًا داخل الطلب الواحد)
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(currentUid())).data;
+    }
+
+    // هل وثيقة المستخدم موجودة؟
+    function userExists() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(currentUid()));
+    }
+
+    // دور المستخدم الحالي
+    function userRole() {
+      return userExists() ? userDoc().role : '';
+    }
+
+    // هل المستخدم مدير؟
+    function isAdmin() {
+      return userExists() && userDoc().role == 'مدير';
+    }
+
+    // هل المستخدم محاسب أو مدير؟
+    function isAccountant() {
+      return userExists()
+        && (userDoc().role == 'مدير' || userDoc().role == 'محاسب');
+    }
+
+    // هل المستخدم موظف نظامي (أي دور)؟
+    function isStaff() {
+      return userExists()
+        && userDoc().role in ['مدير', 'محاسب', 'مشرف', 'موظف'];
+    }
+
+    // التحقق من صلاحية مخصّصة من خريطة permissions
+    // المديرون يملكون كل الصلاحيات تلقائيًا
+    function hasPermission(perm) {
+      return userExists()
+        && (
+          userDoc().role == 'مدير'
+          || (userDoc().permissions != null
+              && userDoc().permissions[perm] == true)
+        );
+    }
+
+    // التحقق من أن حقلًا لم يتغير في التحديث
+    function fieldUnchanged(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+
+    // التحقق من أن مجموعة حقول لم تتغير
+    function fieldsNotChanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // التحقق من حجم الملف المرفوع (للحواجز الحدودية)
+    function validSize(maxBytes) {
+      return request.resource.size <= maxBytes;
+    }
+
+    // ============================================================
+    // 1. مجموعة users — المستخدمون النظاميون
+    // ============================================================
+    match /users/{uid} {
+
+      // القراءة: المستخدم يقرأ وثيقته، المدير يقرأ الكل
+      allow read: if isSignedIn()
+        && (uid == currentUid() || isAdmin());
+
+      // الإنشاء:
+      // - مستخدم جديد يُنشئ وثيقته عند التسجيل (role=موظف فقط)
+      // - المدير يُنشئ أي وثيقة
+      allow create: if isSignedIn() && (
+        (uid == currentUid()
+         && request.resource.data.role == 'موظف'
+         && request.resource.data.email is string
+         && request.resource.data.email != ''
+         && (request.resource.data.disabled == false
+             || !('disabled' in request.resource.data)))
+        || isAdmin()
+      );
+
+      // التحديث:
+      // - المدير يحدّث أي شيء
+      // - المستخدم يحدّث وثيقته لكن لا يغيّر role/disabled/permissions
+      //   (هذا يمنع المستخدم من ترقية نفسه)
+      allow update: if isAdmin()
+        || (isSignedIn() && uid == currentUid()
+            && fieldsNotChanged(['role', 'disabled', 'permissions']));
+
+      // الحذف: مدير فقط
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 2. مجموعة customers — العملاء
+    // ============================================================
+    match /customers/{customerId} {
+
+      // القراءة: المدير، الموظف بصلاحية، العميل يقرأ وثيقته (ربط بـ uid)
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canViewCustomers')
+        || (resource.data.uid == currentUid())
+      );
+
+      // الإنشاء:
+      // - المدير، الموظف بصلاحية canAddCustomers
+      // - العميل يسجّل وثيقته بنفسه (uid = معرّفه)
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canAddCustomers')
+        || (request.resource.data.uid == currentUid())
+      );
+
+      // التحديث:
+      // - المدير، الموظف بصلاحية canEditCustomers
+      // - العميل يحدّث بياناته لكن لا يغيّر الحقول المالية
+      //   (totalPaid, balance — هذه يحدّثها المدير/المحاسب فقط)
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canEditCustomers')
+        || (resource.data.uid == currentUid()
+            && fieldsNotChanged(['totalPaid', 'balance', 'createdAt']))
+      );
+
+      // الحذف: مدير فقط
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 3. مجموعة employees — الموظفون
+    // ============================================================
+    match /employees/{employeeId} {
+
+      // القراءة: المدير، الموظف بصلاحية، الموظف يقرأ وثيقته (ربط بـ uid)
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canViewEmployees')
+        || (resource.data.uid == currentUid())
+      );
+
+      // الكتابة (إنشاء/تحديث/حذف): مدير فقط
+      // ملاحظة: الموظف لا يغيّر راتله أو عمولته بنفسه
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 4. مجموعة services — الخدمات
+    // ============================================================
+    match /services/{serviceId} {
+
+      // القراءة: أي مستخدم مسجّل (لعرضها في بوابة العملاء)
+      allow read: if isSignedIn();
+
+      // الكتابة: مدير فقط
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 5. مجموعة orders — الطلبات
+    // ============================================================
+    match /orders/{orderId} {
+
+      // القراءة: المدير، الموظف بصلاحية، الموظف المعيّن، العميل (ربط بـ customerUid)
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canViewOrders')
+        || (resource.data.assignedEmployeeIds != null
+            && resource.data.assignedEmployeeIds.hasAny([currentUid()]))
+        || (resource.data.employeeId != null
+            && get(/databases/$(database)/documents/employees/$(resource.data.employeeId)).data.uid == currentUid())
+        || (resource.data.customerUid == currentUid())
+      );
+
+      // الإنشاء:
+      // - المدير، الموظف بصلاحية canCreateOrders
+      // - العميل ينشئ طلب خدمة (status=جديد فقط)
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canCreateOrders')
+        || (request.resource.data.customerUid == currentUid()
+            && request.resource.data.status == 'جديد')
+      );
+
+      // التحديث:
+      // - المدير، الموظف بصلاحية canUpdateOrders
+      // - الموظف المعيّن يحدّث التقدّم لكن لا يغيّر المبالغ
+      // - العميل لا يحدّث بعد الإنشاء
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canUpdateOrders')
+        || (resource.data.assignedEmployeeIds != null
+            && resource.data.assignedEmployeeIds.hasAny([currentUid()])
+            && fieldsNotChanged(['total', 'paid', 'price', 'customerId', 'employeeId']))
+      );
+
+      // الحذف: مدير فقط (يُفضّل status=ملغي)
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 6. مجموعة payments — المدفوعات (مع سير التحقق)
+    // ============================================================
+    // هذا المجموعة حرجة: تفرض سير التحقق بدون Cloud Functions
+    // العميل → يرفع إثبات (status=pending)
+    // المدير/المحاسب → يراجع ويوافق/يرفض (status=approved/rejected)
+    // المدفوعات المعتمدة لا تُعدّل إلا بواسطة مدير
+    // ============================================================
+    match /payments/{paymentId} {
+
+      // القراءة: المدير، المحاسب، العميل (ربط بـ customerUid)
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || isAccountant()
+        || (resource.data.customerUid == currentUid())
+      );
+
+      // الإنشاء:
+      // - المدير/المحاسب ينشئ دفعة بأي حالة
+      // - العميل يرفع إثبات دفع (status=pending فقط، مبلغ موجب)
+      allow create: if isSignedIn() && (
+        isAccountant()
+        || (request.resource.data.customerUid == currentUid()
+            && request.resource.data.status == 'pending'
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0)
+      );
+
+      // التحديث:
+      // - المدير/المحاسب يحدّث أي شيء (بما فيه status)
+      // - لا أحد يعدّل دفعة معتمدة إلا مدير
+      // - العميل لا يحدّث بعد الرفع
+      allow update: if isSignedIn() && (
+        (isAccountant() && resource.data.status != 'approved')
+        || isAdmin()
+      );
+
+      // الحذف: مدير فقط (يُفضّل status=rejected أو refunded)
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 7. مجموعة invoices — الفواتير
+    // ============================================================
+    match /invoices/{invoiceId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || isAccountant()
+        || (resource.data.customerUid == currentUid())
+      );
+
+      allow create: if isSignedIn() && (isAdmin() || isAccountant());
+      allow update: if isSignedIn() && (isAdmin() || isAccountant());
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 8. مجموعة treasury — الخزينة
+    // ============================================================
+    // تحصي صارمة: لا إنشاء إيداع مرتبط بدفعة غير معتمدة
+    // ============================================================
+    match /treasury/{txId} {
+
+      allow read: if isSignedIn() && (isAdmin() || isAccountant());
+
+      // الإنشاء: مدير/محاسب
+      // للإيداعات المرتبطة بمدفوعات: التحقق من أن الدفعة معتمدة
+      allow create: if isSignedIn()
+        && (isAdmin() || isAccountant())
+        && (
+          // إيداع غير مرتبط بدفعة (إيداع خارجي، سحب، تحويل)
+          request.resource.data.sourceTransactionId == null
+          // إيداع مرتبط بدفعة معتمدة
+          || (
+            request.resource.data.sourceTransactionId != null
+            && exists(/databases/$(database)/documents/payments/$(request.resource.data.sourceTransactionId))
+            && get(/databases/$(database)/documents/payments/$(request.resource.data.sourceTransactionId)).data.status == 'approved'
+          )
+        );
+
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 9. مجموعة settings — الإعدادات العامة
+    // ============================================================
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 10. مجموعة tasks — المهام (جديدة)
+    // ============================================================
+    match /tasks/{taskId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canViewTasks')
+        || (resource.data.assignedEmployeeIds != null
+            && resource.data.assignedEmployeeIds.hasAny([currentUid()]))
+      );
+
+      allow create: if isSignedIn()
+        && (isAdmin() || hasPermission('canAssignTasks'));
+
+      // الموظف المعيّن يحدّث التقدّم لكن لا يغيّر التعويض أو التعيين
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canAssignTasks')
+        || (resource.data.assignedEmployeeIds != null
+            && resource.data.assignedEmployeeIds.hasAny([currentUid()])
+            && fieldsNotChanged(['compensation', 'assignedEmployeeIds', 'assignedBy']))
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 11. مجموعة inquiries — الاستفسارات (جديدة)
+    // ============================================================
+    match /inquiries/{inquiryId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || hasPermission('canViewInquiries')
+      );
+
+      // الإنشاء: أي مستخدم مسجّل (العملاء يرسلون استفسارات)
+      allow create: if isSignedIn()
+        && request.resource.data.status == 'جديد';
+
+      allow update: if isSignedIn()
+        && (isAdmin() || hasPermission('canEditInquiries'));
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 12. مجموعة conversations — المحادثات (جديدة)
+    // ============================================================
+    match /conversations/{convId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || (resource.data.customerUid == currentUid())
+        || (resource.data.employeeUid == currentUid())
+      );
+
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || request.resource.data.customerUid == currentUid()
+      );
+
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || resource.data.customerUid == currentUid()
+        || resource.data.employeeUid == currentUid()
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 13. مجموعة messages — الرسائل (جديدة)
+    // ============================================================
+    // تحسين: كل رسالة تتضمّن participants[] لتجنب get() إضافية
+    // ============================================================
+    match /messages/{msgId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || (resource.data.senderUid == currentUid())
+        || (resource.data.participants != null
+            && resource.data.participants.hasAny([currentUid()]))
+      );
+
+      // الإنشاء: المستخدم يرسل رسالة باسمه فقط
+      // participants يجب أن يتضمّن المرسِل
+      allow create: if isSignedIn()
+        && request.resource.data.senderUid == currentUid()
+        && request.resource.data.text is string
+        && request.resource.data.participants != null
+        && request.resource.data.participants.hasAny([currentUid()]);
+
+      // الرسائل لا تُعدّل ولا تُحذف (سجل محادثة دائم)
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // 14. مجموعة notifications — الإشعارات (جديدة)
+    // ============================================================
+    match /notifications/{notifId} {
+
+      // المستخدم يقرأ إشعاراته فقط
+      allow read: if isSignedIn()
+        && resource.data.userId == currentUid();
+
+      // الإنشاء: المستخدم يُنشئ إشعاره (أو النظام — لكن بدون Cloud Functions
+      // يُنشئها العميل باسم المستخدم المستلم)
+      allow create: if isSignedIn();
+
+      // التحديث: المستخدم يحدّث إشعاره (مثلاً قراءة/غير مقروء)
+      // لكن لا يغيّر المحتوى
+      allow update: if isSignedIn()
+        && resource.data.userId == currentUid()
+        && fieldsNotChanged(['title', 'body', 'type', 'userId']);
+
+      allow delete: if isSignedIn()
+        && resource.data.userId == currentUid();
+    }
+
+    // ============================================================
+    // 15. مجموعة employeeLedger — دفتر أستاذ الموظف (جديدة)
+    // ============================================================
+    match /employeeLedger/{entryId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || isAccountant()
+        || (resource.data.employeeUid == currentUid())
+      );
+
+      // الإنشاء: مدير/محاسب فقط
+      allow create: if isSignedIn() && (isAdmin() || isAccountant());
+
+      // التحديث/الحذف: مدير فقط (مع توثيق السبب)
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 16. مجموعة activityLogs — سجل النشاطات (جديدة)
+    // ============================================================
+    // حرج: append-only — لا تعديل ولا حذف أبدًا
+    // هذا يوفّر tamper-evidence بدون Cloud Functions
+    // ============================================================
+    match /activityLogs/{logId} {
+
+      // القراءة: مدير فقط
+      allow read: if isAdmin();
+
+      // الإنشاء: أي مستخدم مسجّل يُسجّل نشاطه باسمه فقط
+      // (userId يجب أن يطابق المستخدم الحالي)
+      allow create: if isSignedIn()
+        && request.resource.data.userId == currentUid()
+        && request.resource.data.timestamp is string;
+
+      // لا تعديل ولا حذف — السجل دائم
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // 17. مجموعة paymentMethods — طرق الدفع (جديدة)
+    // ============================================================
+    match /paymentMethods/{methodId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // 18. مجموعة systemSettings — إعدادات النظام الديناميكية (جديدة)
+    // ============================================================
+    match /systemSettings/{settingId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    // القاعدة الافتراضية: رفض كل ما لم يُذكر صراحة
+    // ============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
