@@ -13,7 +13,7 @@ import {
   onAuthStateChanged, signOut,
 } from 'firebase/auth';
 import {
-  collection, query, where, or, orderBy, onSnapshot,
+  collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
 import { ensureCustomerSession } from './portal-session.js';
 
@@ -120,27 +120,39 @@ onAuthStateChanged(auth, async (user) => {
 let allOrders = [];
 
 function loadOrders() {
-  const q = query(
-    collection(db, 'orders'),
-    or(
-      where('customerUid', '==', currentCustomerUid),
-      where('customerId', '==', currentCustomerUid)
-    ),
-    orderBy('createdAt', 'desc')
-  );
+  let ordersByUid = [];
+  let ordersById = [];
 
-  onSnapshot(q, (snapshot) => {
-    allOrders = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
+  const renderCustomerOrders = () => {
+    const ordersByDocumentId = new Map(
+      [...ordersByUid, ...ordersById].map((order) => [order.id, order])
+    );
+    allOrders = [...ordersByDocumentId.values()].sort((a, b) => {
+      const aDate = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+      const bDate = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+      return bDate - aDate;
+    });
     renderRecentOrders(allOrders.slice(0, 5));
     updateStatsFromOrders();
-  }, (error) => {
-    console.warn('Could not load orders:', error);
-    document.getElementById('recentOrders').innerHTML =
-      '<p class="text-muted text-center py-3">لا توجد طلبات بعد</p>';
+  };
+
+  [
+    ['customerUid', (orders) => { ordersByUid = orders; }],
+    ['customerId', (orders) => { ordersById = orders; }],
+  ].forEach(([field, setOrders]) => {
+    const q = query(
+      collection(db, 'orders'),
+      where(field, '==', currentCustomerUid),
+      orderBy('createdAt', 'desc')
+    );
+
+    onSnapshot(q, (snapshot) => {
+      setOrders(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      renderCustomerOrders();
+    }, (error) => {
+      console.warn(`Could not load orders by ${field}:`, error);
+      renderCustomerOrders();
+    });
   });
 }
 
