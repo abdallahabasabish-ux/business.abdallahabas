@@ -202,6 +202,9 @@ function renderMyTasks(tasks) {
     const days = daysUntil(task.deadline);
     const isOverdue = days !== null && days < 0 && task.status !== 'completed';
     const isUrgent = days !== null && days >= 0 && days <= 2;
+    const deadlineLabel = days === null ? ''
+      : days > 0 ? ` (${days} يوم متبقّي)`
+        : days === 0 ? ' (اليوم)' : ` (${Math.abs(days)} يوم متأخر)`;
 
     html += `
       <div class="task-card ${isOverdue ? 'overdue' : ''}">
@@ -215,7 +218,7 @@ function renderMyTasks(tasks) {
             <div class="text-muted small mt-1">
               ${task.priority ? `<span class="priority-${task.priority}"><i class="fas fa-flag"></i> ${escapeHtml(task.priority)}</span> • ` : ''}
               <i class="fas fa-calendar"></i> ${formatDate(task.deadline)}
-              ${days !== null ? ` (${days > 0 ? `${days} يوم متبقّي` : days === 0 ? 'اليوم' : `${Math.abs(days)} يوم متأخر`)})` : ''}
+              ${deadlineLabel}
               ${task.compensation ? ` • <i class="fas fa-dollar-sign"></i> ${formatCurrency(task.compensation)}` : ''}
             </div>
           </div>

@@ -16,6 +16,8 @@ import { doc, onSnapshot } from 'firebase/firestore';
 let currentUserData = null;
 let currentAuthUser = null;
 let unsubListener = null;
+let permissionsReadyPromise = null;
+let resolvePermissionsReady = null;
 
 // =============================================================
 // 2. تعريف الصلاحيات المتاحة في النظام
@@ -42,6 +44,10 @@ export const PERMISSIONS = {
 // 3. تهيئة الصلاحيات — تُستدعى عند تسجيل الدخول
 // =============================================================
 export function initPermissions(user) {
+  if (currentAuthUser?.uid === user.uid && unsubListener) {
+    return permissionsReadyPromise || Promise.resolve(currentUserData);
+  }
+
   currentAuthUser = user;
 
   // إيقاف المستمع السابق إن وجد
@@ -49,44 +55,56 @@ export function initPermissions(user) {
     unsubListener();
     unsubListener = null;
   }
+  resolvePermissionsReady?.(null);
+  currentUserData = null;
 
   // الاستماع لوثيقة المستخدم في مجموعة users
   // تحديثات فورية: إذا غيّر المدير دور/صلاحيات مستخدم، تنعكس فورًا
-  unsubListener = onSnapshot(
-    doc(db, 'users', user.uid),
-    (docSnap) => {
-      if (docSnap.exists()) {
-        currentUserData = { uid: docSnap.id, ...docSnap.data() };
-      } else {
-        // المستخدم موجود في Auth لكن لا يملك وثيقة في users
-        // نعامله كموظف افتراضي (القواعد ستسمح بإنشاء وثيقته)
-        currentUserData = {
+  permissionsReadyPromise = new Promise((resolve) => {
+    let initialResultReceived = false;
+    resolvePermissionsReady = resolve;
+
+    const updateUserData = (userData) => {
+      currentUserData = userData;
+      window.dispatchEvent(
+        new CustomEvent('permissionsUpdated', { detail: currentUserData })
+      );
+      applyPermissionsToUI();
+
+      if (!initialResultReceived) {
+        initialResultReceived = true;
+        resolvePermissionsReady = null;
+        resolve(userData);
+      }
+    };
+
+    unsubListener = onSnapshot(
+      doc(db, 'users', user.uid),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          updateUserData({ uid: docSnap.id, ...docSnap.data() });
+        } else {
+          updateUserData({
+            uid: user.uid,
+            email: user.email,
+            role: 'موظف',
+            permissions: {},
+          });
+        }
+      },
+      (error) => {
+        console.warn('⚠️ Could not load user permissions:', error);
+        updateUserData({
           uid: user.uid,
           email: user.email,
           role: 'موظف',
           permissions: {},
-        };
+        });
       }
+    );
+  });
 
-      // إشعار الواجهة بتحديث الصلاحيات
-      window.dispatchEvent(
-        new CustomEvent('permissionsUpdated', { detail: currentUserData })
-      );
-
-      // تطبيق الصلاحيات على القائمة والأزرار
-      applyPermissionsToUI();
-    },
-    (error) => {
-      console.warn('⚠️ Could not load user permissions:', error);
-      currentUserData = {
-        uid: user.uid,
-        email: user.email,
-        role: 'موظف',
-        permissions: {},
-      };
-      applyPermissionsToUI();
-    }
-  );
+  return permissionsReadyPromise;
 }
 
 // =============================================================
@@ -97,6 +115,9 @@ export function stopPermissions() {
     unsubListener();
     unsubListener = null;
   }
+  resolvePermissionsReady?.(null);
+  resolvePermissionsReady = null;
+  permissionsReadyPromise = null;
   currentUserData = null;
   currentAuthUser = null;
 }

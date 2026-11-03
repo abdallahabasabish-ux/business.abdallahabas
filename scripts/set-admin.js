@@ -15,7 +15,9 @@
 // ملاحظة: هذا السكربت آمن لأنه يعمل محليًا فقط ولا يُنشر للعميل.
 // =============================================================
 
-const admin = require('firebase-admin');
+const { cert, initializeApp } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore } = require('firebase-admin/firestore');
 const fs = require('fs');
 const path = require('path');
 
@@ -33,13 +35,16 @@ if (!email) {
 // =============================================================
 // 2. تحميل مفتاح حساب الخدمة
 // =============================================================
-const keyPath = path.join(__dirname, 'service-account.json');
+const keyPath = [
+  path.join(__dirname, 'service-account.json'),
+  path.join(__dirname, 'serviceAccountKey.json'),
+].find((candidate) => fs.existsSync(candidate));
 
-if (!fs.existsSync(keyPath)) {
+if (!keyPath) {
   console.error('❌ لم يُعثر على service-account.json');
   console.error('   نزّل المفتاح من:');
   console.error('   Firebase Console → Project Settings → Service Accounts → Generate New Private Key');
-  console.error('   واحفظه في: ' + keyPath);
+  console.error('   واحفظه باسم service-account.json أو serviceAccountKey.json في: ' + __dirname);
   process.exit(1);
 }
 
@@ -48,13 +53,13 @@ const serviceAccount = require(keyPath);
 // =============================================================
 // 3. تهيئة Admin SDK
 // =============================================================
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+const app = initializeApp({
+  credential: cert(serviceAccount),
   projectId: serviceAccount.project_id,
 });
 
-const auth = admin.auth();
-const db = admin.firestore();
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 // =============================================================
 // 4. البحث عن المستخدم بواسطة البريد وتعيين دور المدير
@@ -122,7 +127,7 @@ async function setAdmin() {
     console.log('   يمكن للمستخدم الآن تسجيل الدخول والوصول لكل الميزات.');
     console.log('   اطلب منه إعادة تسجيل الدخول لتفعيل Custom Claims.');
     console.log('');
-    console.log('⚠️  احذف service-account.json بعد الانتهاء (لا تُلتزمه في Git).');
+    console.log(`⚠️ احذف ${path.basename(keyPath)} بعد الانتهاء (لا تُلتزمه في Git).`);
     process.exit(0);
   } catch (error) {
     console.error('');

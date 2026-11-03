@@ -30,7 +30,8 @@ export function initPage(options = {}) {
     }
 
     // تهيئة الصلاحيات (يبدأ الاستماع لوثيقة المستخدم)
-    initPermissions(user);
+    const userData = await initPermissions(user);
+    if (!userData || userData.uid !== user.uid) return;
 
     // تحديث بيانات المستخدم في القائمة الجانبية
     updateSidebarUserInfo(user);
@@ -55,7 +56,7 @@ export function initPage(options = {}) {
 
     // استدعاء دالة جاهزية الصفحة إن وُجدت
     if (options.onReady && typeof options.onReady === 'function') {
-      options.onReady(user, getUserData());
+      options.onReady(user, userData);
     }
   });
 }
@@ -125,16 +126,20 @@ function initSidebar() {
   const overlay = document.getElementById('sidebar-overlay');
 
   if (sidebarToggle && sidebar) {
-    sidebarToggle.addEventListener('click', () => {
+    const newToggle = sidebarToggle.cloneNode(true);
+    sidebarToggle.parentNode.replaceChild(newToggle, sidebarToggle);
+    newToggle.addEventListener('click', () => {
       sidebar.classList.toggle('active');
       if (overlay) overlay.classList.toggle('active');
     });
   }
 
   if (overlay) {
-    overlay.addEventListener('click', () => {
+    const newOverlay = overlay.cloneNode(true);
+    overlay.parentNode.replaceChild(newOverlay, overlay);
+    newOverlay.addEventListener('click', () => {
       sidebar.classList.remove('active');
-      overlay.classList.remove('active');
+      newOverlay.classList.remove('active');
     });
   }
 }
