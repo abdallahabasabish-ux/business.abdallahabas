@@ -17,6 +17,7 @@ import {
   where,
   Timestamp
 } from 'firebase/firestore';
+import { initPermissions, isAdmin, isAccountant, hasPermission } from '../permissions.js';
 
 let invoices = [];
 let customers = [];
@@ -85,11 +86,14 @@ async function loadSettings() {
 
 async function loadCustomersAndServices() {
   try {
+    const canViewCustomers = isAdmin() || hasPermission('canViewCustomers');
     const [customersSnap, servicesSnap] = await Promise.all([
-      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
-      getDocs(collection(db, 'services'))
+      canViewCustomers
+        ? getDocs(query(collection(db, 'customers'), where('uid', '>', '')))
+        : Promise.resolve(null),
+      getDocs(collection(db, 'services')),
     ]);
-    customers = customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    customers = customersSnap?.docs.map(doc => ({ id: doc.id, ...doc.data() })) || [];
     services = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
     console.error('Error loading customers/services:', error);
@@ -177,6 +181,14 @@ onAuthStateChangedCallback(async (user) => {
     window.location.href = '../login.html';
     return;
   }
+  await initPermissions(user);
+  if (!isAdmin() && !isAccountant() && !hasPermission('canViewInvoices')) {
+    window.location.replace('../dashboard.html');
+    return;
+  }
+  const createInvoiceButton = document.getElementById('createInvoiceBtn');
+  if (createInvoiceButton) createInvoiceButton.hidden = !isAdmin() && !isAccountant();
+
   const sidebarUserName = document.getElementById('sidebarUserName');
   const sidebarUserEmail = document.getElementById('sidebarUserEmail');
   const sidebarAvatar = document.getElementById('sidebarAvatar');

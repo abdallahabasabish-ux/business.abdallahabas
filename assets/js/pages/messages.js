@@ -139,6 +139,7 @@ function selectConversation(convId) {
   const q = query(
     collection(db, 'messages'),
     where('conversationId', '==', convId),
+    ...(isAdmin() ? [] : [where('participants', 'array-contains', getCurrentUid())]),
     orderBy('createdAt', 'asc')
   );
 

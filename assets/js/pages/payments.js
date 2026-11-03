@@ -18,7 +18,9 @@ import {
   serverTimestamp, where,
 } from 'firebase/firestore';
 import { initPage, formatCurrency, formatDate, escapeHtml, showToast } from '../init.js';
-import { getCurrentUid, getUserData } from '../permissions.js';
+import {
+  getCurrentUid, getUserData, isAdmin, isAccountant, hasPermission,
+} from '../permissions.js';
 import { log } from '../activity-log-helper.js';
 import { createNotification } from '../notification-helper.js';
 
@@ -33,7 +35,15 @@ let paymentModalInstance = null;
 // =============================================================
 initPage({
   onReady: async () => {
-    await loadCustomers();
+    if (!isAdmin() && !isAccountant() && !hasPermission('canViewPayments')) {
+      window.location.replace('dashboard.html');
+      return;
+    }
+
+    const canManagePayments = isAdmin() || isAccountant();
+    const addPaymentButton = document.getElementById('addPaymentBtn');
+    if (addPaymentButton) addPaymentButton.hidden = !canManagePayments;
+    if (canManagePayments) await loadCustomers();
     listenToPayments();
     document.addEventListener('click', handleActionButtonClick);
   },
@@ -107,6 +117,8 @@ function renderTable(data) {
   }
 
   let html = '';
+  const canApprovePayments = isAdmin() || isAccountant();
+  const canDeletePayments = isAdmin();
   data.forEach((payment, index) => {
     let customerName = payment.customerName || 'غير معروف';
     if (!payment.customerName) {
@@ -126,7 +138,7 @@ function renderTable(data) {
         <td>${statusBadge}</td>
         <td>${escapeHtml(payment.notes || '')}</td>
         <td>
-          ${status === 'pending' ? `
+          ${status === 'pending' && canApprovePayments ? `
             <button class="btn btn-sm btn-outline-success action-btn" data-action="approve" data-id="${payment.id}" title="اعتماد">
               <i class="fas fa-check"></i>
             </button>
@@ -134,12 +146,16 @@ function renderTable(data) {
               <i class="fas fa-times"></i>
             </button>
           ` : ''}
-          <button class="btn btn-sm btn-outline-primary action-btn" data-action="edit" data-id="${payment.id}" title="تعديل">
-            <i class="fas fa-edit"></i>
-          </button>
-          <button class="btn btn-sm btn-outline-danger action-btn" data-action="delete" data-id="${payment.id}" title="حذف">
-            <i class="fas fa-trash"></i>
-          </button>
+          ${(isAdmin() || (isAccountant() && status !== 'approved')) ? `
+            <button class="btn btn-sm btn-outline-primary action-btn" data-action="edit" data-id="${payment.id}" title="تعديل">
+              <i class="fas fa-edit"></i>
+            </button>
+          ` : ''}
+          ${canDeletePayments ? `
+            <button class="btn btn-sm btn-outline-danger action-btn" data-action="delete" data-id="${payment.id}" title="حذف">
+              <i class="fas fa-trash"></i>
+            </button>
+          ` : ''}
         </td>
       </tr>
     `;
@@ -199,6 +215,15 @@ async function approvePayment(id) {
     // 1. معاملة ذرية: تحديث الدفعة + رصيد العميل + إيداع خزينة
     await runTransaction(db, async (transaction) => {
       const paymentRef = doc(db, 'payments', id);
+      let customerRef = null;
+      let customerData = null;
+
+      if (payment.customerId) {
+        customerRef = doc(db, 'customers', payment.customerId);
+        const customerDoc = await transaction.get(customerRef);
+        if (customerDoc.exists()) customerData = customerDoc.data();
+      }
+
       transaction.update(paymentRef, {
         status: 'approved',
         verificationStatus: 'approved',
@@ -207,17 +232,12 @@ async function approvePayment(id) {
         updatedAt: new Date().toISOString(),
       });
 
-      if (payment.customerId) {
-        const customerRef = doc(db, 'customers', payment.customerId);
-        const customerDoc = await transaction.get(customerRef);
-        if (customerDoc.exists()) {
-          const data = customerDoc.data();
-          transaction.update(customerRef, {
-            totalPaid: (data.totalPaid || 0) + (payment.amount || 0),
-            balance: (data.balance || 0) - (payment.amount || 0),
-            updatedAt: new Date().toISOString(),
-          });
-        }
+      if (customerRef && customerData) {
+        transaction.update(customerRef, {
+          totalPaid: (customerData.totalPaid || 0) + (payment.amount || 0),
+          balance: (customerData.balance || 0) - (payment.amount || 0),
+          updatedAt: new Date().toISOString(),
+        });
       }
 
       const treasuryRef = doc(collection(db, 'treasury'));
@@ -465,18 +485,21 @@ async function confirmDelete(id) {
 
   try {
     await runTransaction(db, async (transaction) => {
-      transaction.delete(doc(db, 'payments', id));
+      let customerRef = null;
+      let customerData = null;
       if (payment.customerId) {
-        const customerRef = doc(db, 'customers', payment.customerId);
+        customerRef = doc(db, 'customers', payment.customerId);
         const customerDoc = await transaction.get(customerRef);
-        if (customerDoc.exists()) {
-          const data = customerDoc.data();
-          transaction.update(customerRef, {
-            totalPaid: (data.totalPaid || 0) - (payment.amount || 0),
-            balance: (data.balance || 0) + (payment.amount || 0),
-            updatedAt: new Date().toISOString(),
-          });
-        }
+        if (customerDoc.exists()) customerData = customerDoc.data();
+      }
+
+      transaction.delete(doc(db, 'payments', id));
+      if (customerRef && customerData) {
+        transaction.update(customerRef, {
+          totalPaid: (customerData.totalPaid || 0) - (payment.amount || 0),
+          balance: (customerData.balance || 0) + (payment.amount || 0),
+          updatedAt: new Date().toISOString(),
+        });
       }
     });
 

@@ -13,7 +13,7 @@ import {
   onAuthStateChanged, signOut,
 } from 'firebase/auth';
 import {
-  collection, query, where, orderBy, onSnapshot,
+  collection, query, where, or, orderBy, onSnapshot,
 } from 'firebase/firestore';
 import { ensureCustomerSession } from './portal-session.js';
 
@@ -122,7 +122,10 @@ let allOrders = [];
 function loadOrders() {
   const q = query(
     collection(db, 'orders'),
-    where('customerUid', '==', currentCustomerUid),
+    or(
+      where('customerUid', '==', currentCustomerUid),
+      where('customerId', '==', currentCustomerUid)
+    ),
     orderBy('createdAt', 'desc')
   );
 

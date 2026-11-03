@@ -159,6 +159,10 @@ service cloud.firestore {
       allow update: if isSignedIn() && (
         isAdmin()
         || hasPermission('canEditCustomers')
+        || (isAccountant()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'totalPaid', 'balance', 'updatedAt'
+            ]))
         || (resource.data.uid == currentUid()
             && fieldsNotChanged(['totalPaid', 'balance', 'createdAt']))
       );
@@ -224,6 +228,7 @@ service cloud.firestore {
         || (resource.data.employeeId != null
             && get(/databases/$(database)/documents/employees/$(resource.data.employeeId)).data.uid == currentUid())
         || (resource.data.customerUid == currentUid())
+        || (resource.data.customerId == currentUid())
       );
 
       // الإنشاء:
@@ -266,6 +271,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         isAdmin()
         || isAccountant()
+        || hasPermission('canViewPayments')
         || (resource.data.customerUid == currentUid())
       );
 
@@ -309,6 +315,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         isAdmin()
         || isAccountant()
+        || hasPermission('canViewInvoices')
         || (resource.data.customerUid == currentUid())
       );
 
@@ -324,7 +331,9 @@ service cloud.firestore {
     // ============================================================
     match /treasury/{txId} {
 
-      allow read: if isSignedIn() && (isAdmin() || isAccountant());
+      allow read: if isSignedIn() && (
+        isAdmin() || isAccountant() || hasPermission('canViewTreasury')
+      );
 
       // الإنشاء: مدير/محاسب
       // للإيداعات المرتبطة بمدفوعات: التحقق من أن الدفعة معتمدة
@@ -337,7 +346,7 @@ service cloud.firestore {
           || (
             request.resource.data.sourceTransactionId != null
             && exists(/databases/$(database)/documents/payments/$(request.resource.data.sourceTransactionId))
-            && get(/databases/$(database)/documents/payments/$(request.resource.data.sourceTransactionId)).data.status == 'approved'
+            && getAfter(/databases/$(database)/documents/payments/$(request.resource.data.sourceTransactionId)).data.status == 'approved'
           )
         );
 
@@ -447,8 +456,14 @@ service cloud.firestore {
         && request.resource.data.participants != null
         && request.resource.data.participants.hasAny([currentUid()]);
 
-      // الرسائل لا تُعدّل ولا تُحذف (سجل محادثة دائم)
-      allow update, delete: if false;
+      // يسمح للمشارك بتحديث علامة القراءة فقط؛ محتوى الرسالة يبقى ثابتًا.
+      allow update: if isSignedIn()
+        && resource.data.participants != null
+        && resource.data.participants.hasAny([currentUid()])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
+        && request.resource.data.readAt is string;
+
+      allow delete: if false;
     }
 
     // ============================================================
@@ -485,8 +500,24 @@ service cloud.firestore {
         || (resource.data.employeeUid == currentUid())
       );
 
-      // الإنشاء: مدير/محاسب فقط
-      allow create: if isSignedIn() && (isAdmin() || isAccountant());
+      // يمكن لمفوّض المهام تسجيل مستحق المهمة التي اعتمدها فقط.
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || isAccountant()
+        || (
+          hasPermission('canAssignTasks')
+          && request.resource.data.type == 'earning'
+          && request.resource.data.status == 'approved'
+          && request.resource.data.taskId is string
+          && request.resource.data.employeeUid is string
+          && request.resource.data.approvedBy == currentUid()
+          && exists(/databases/$(database)/documents/tasks/$(request.resource.data.taskId))
+          && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.status == 'completed'
+          && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.approvedBy == currentUid()
+          && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.compensation == request.resource.data.amount
+          && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.assignedEmployeeIds.hasAny([request.resource.data.employeeUid])
+        )
+      );
 
       // التحديث/الحذف: مدير فقط (مع توثيق السبب)
       allow update, delete: if isAdmin();

@@ -14,6 +14,9 @@ import {
   runTransaction,
   getDoc
 } from 'firebase/firestore';
+import {
+  initPermissions, isAdmin, isAccountant, hasPermission,
+} from '../permissions.js';
 
 let transactions = [];
 let customers = [];
@@ -74,6 +77,12 @@ onAuthStateChangedCallback(async (user) => {
     window.location.href = '../login.html';
     return;
   }
+  await initPermissions(user);
+  if (!isAdmin() && !isAccountant() && !hasPermission('canViewTreasury')) {
+    window.location.replace('../dashboard.html');
+    return;
+  }
+  const canManageTreasury = isAdmin() || isAccountant();
 
   // تحديث بيانات المستخدم
   const sidebarUserName = document.getElementById('sidebarUserName');
@@ -99,20 +108,26 @@ onAuthStateChangedCallback(async (user) => {
     treasuryModalInstance = new bootstrap.Modal(modalEl);
   }
 
-  // تحميل العملاء
-  await loadCustomers();
-
-  // جلب إجمالي المدفوعات
-  await loadTotalPayments();
+  if (canManageTreasury) {
+    await loadCustomers();
+    await loadTotalPayments();
+  } else {
+    ['depositBtn', 'withdrawBtn', 'transferBtn'].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) button.hidden = true;
+    });
+  }
 
   // تحميل المعاملات
   listenToTransactions();
 
   // ربط الأحداث
-  document.getElementById('depositBtn')?.addEventListener('click', () => openModal('deposit'));
-  document.getElementById('withdrawBtn')?.addEventListener('click', () => openModal('withdraw'));
-  document.getElementById('transferBtn')?.addEventListener('click', () => openModal('transfer'));
-  document.getElementById('saveTxBtn')?.addEventListener('click', saveTransaction);
+  if (canManageTreasury) {
+    document.getElementById('depositBtn')?.addEventListener('click', () => openModal('deposit'));
+    document.getElementById('withdrawBtn')?.addEventListener('click', () => openModal('withdraw'));
+    document.getElementById('transferBtn')?.addEventListener('click', () => openModal('transfer'));
+    document.getElementById('saveTxBtn')?.addEventListener('click', saveTransaction);
+  }
 
   // فلاتر المعاملات
   document.querySelectorAll('.filter-badge').forEach(badge => {
@@ -420,6 +435,7 @@ async function saveTransaction() {
     const data = {
       type,
       amount,
+      sourceTransactionId: null,
       note,
       date: date ? new Date(date + 'T00:00:00') : new Date(),
       createdAt: new Date().toISOString(),
