@@ -1,36 +1,36 @@
-// ============================================
-//  في app.js - استبدل الكود الحالي بهذا
-// ============================================
+import { onAuthStateChangedCallback } from './auth.js';
+import { db } from './firebase-config.js';
+import { doc, getDoc } from 'firebase/firestore';
 
-if (currentPage === 'dashboard.html') {
-    onAuthStateChangedCallback((user) => {
+const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+
+if (currentPage === 'index.html') {
+    onAuthStateChangedCallback(async (user) => {
         if (!user) {
-            window.location.href = 'login.html';
+            window.location.replace('login.html');
             return;
         }
 
-        // ✅ الحل: استخدام دالة آمنة لتحديث العناصر
-        safeSetText('userEmail', user.email || '');
-        safeSetText('userUid', user.uid || '');
-        safeSetText('userName', user.displayName || user.email || 'مستخدم');
-
-        console.log('✅ Dashboard auth state updated:', user.email);
-    });
-
-    // زر تسجيل الخروج
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            try {
-                await logoutUser();
-                window.location.href = 'login.html';
-            } catch (error) {
-                console.error('Logout error:', error);
-                window.location.href = 'login.html';
+        try {
+            const userSnapshot = await getDoc(doc(db, 'users', user.uid));
+            if (userSnapshot.exists()) {
+                const role = userSnapshot.data().role;
+                const destination = ['مشرف', 'موظف'].includes(role)
+                    ? 'employee-dashboard.html'
+                    : 'dashboard.html';
+                window.location.replace(destination);
+                return;
             }
-        });
-    }
+
+            const customerSnapshot = await getDoc(doc(db, 'customers', user.uid));
+            window.location.replace(
+                customerSnapshot.exists() ? 'portal-dashboard.html' : 'login.html'
+            );
+        } catch (error) {
+            console.error('Could not route authenticated user:', error);
+            window.location.replace('login.html');
+        }
+    });
 }
 
 // ============================================
