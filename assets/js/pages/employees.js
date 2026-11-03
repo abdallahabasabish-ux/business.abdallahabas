@@ -2,9 +2,9 @@ import { onAuthStateChangedCallback, logoutUser } from '../auth.js';
 import { db } from '../firebase-config.js';
 import {
   collection,
-  addDoc,
   doc,
   updateDoc,
+  setDoc,
   deleteDoc,
   onSnapshot,
   query,
@@ -17,8 +17,11 @@ import {
 } from 'firebase/firestore';
 
 let employees = [];
+let employeeRecords = [];
+let registeredEmployeeUsers = [];
 let editingId = null;
 let employeesListener = null;
+let usersListener = null;
 
 onAuthStateChangedCallback(async (user) => {
   if (!user) {
@@ -132,26 +135,67 @@ function listenToEmployees() {
   }
 
   employeesListener = onSnapshot(q, (snapshot) => {
-    if (snapshot.empty) {
-      employees = [];
-      renderTable([]);
-      document.getElementById('resultCount').textContent = 'عرض 0 موظف';
-      return;
-    }
-
-    employees = snapshot.docs.map(doc => ({
+    employeeRecords = snapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
+      recordExists: true,
     }));
-
-    const searchTerm = document.getElementById('searchInput')?.value.trim().toLowerCase() || '';
-    const filtered = searchTerm ? filterEmployees(searchTerm) : employees;
-    renderTable(filtered);
-    document.getElementById('resultCount').textContent = `عرض ${filtered.length} موظف`;
+    renderEmployees();
   }, (error) => {
     console.error('Error listening to employees:', error);
     showToast('حدث خطأ في تحميل الموظفين', 'error');
   });
+
+  if (usersListener) usersListener();
+  usersListener = onSnapshot(collection(db, 'users'), (snapshot) => {
+    registeredEmployeeUsers = snapshot.docs
+      .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
+      .filter((user) => ['موظف', 'مشرف'].includes(user.role));
+    renderEmployees();
+  }, (error) => {
+    console.error('Error listening to employee accounts:', error);
+    showToast('تعذّر تحميل حسابات الموظفين المسجلة', 'error');
+  });
+}
+
+function renderEmployees() {
+  const mergedEmployees = employeeRecords.map((employee) => ({ ...employee }));
+
+  registeredEmployeeUsers.forEach((user) => {
+    const email = user.email?.trim().toLowerCase();
+    const employee = mergedEmployees.find((record) =>
+      record.uid === user.id || record.id === user.id ||
+      (email && record.email?.trim().toLowerCase() === email)
+    );
+
+    if (employee) {
+      employee.uid = user.id;
+      employee.email ||= user.email;
+      employee.name ||= user.displayName || user.email;
+      return;
+    }
+
+    mergedEmployees.push({
+      id: user.id,
+      uid: user.id,
+      name: user.displayName || user.email,
+      email: user.email || '',
+      position: 'بانتظار التحديد',
+      phone: '',
+      salary: '',
+      commission: 0,
+      status: 'بانتظار التفعيل',
+      orderCount: 0,
+      completionRate: 0,
+      recordExists: false,
+    });
+  });
+
+  employees = mergedEmployees;
+  const searchTerm = document.getElementById('searchInput')?.value.trim().toLowerCase() || '';
+  const filtered = searchTerm ? filterEmployees(searchTerm) : employees;
+  renderTable(filtered);
+  document.getElementById('resultCount').textContent = `عرض ${filtered.length} موظف`;
 }
 
 // ============================
@@ -200,9 +244,11 @@ function renderTable(data) {
           <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${employee.id}" title="تعديل">
             <i class="fas fa-edit"></i>
           </button>
-          <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${employee.id}" title="حذف">
-            <i class="fas fa-trash"></i>
-          </button>
+          ${employee.recordExists === false ? '' : `
+            <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${employee.id}" title="حذف">
+              <i class="fas fa-trash"></i>
+            </button>
+          `}
         </td>
       </tr>
     `;
@@ -245,14 +291,27 @@ document.getElementById('searchInput')?.addEventListener('input', (e) => {
 // ============================
 // 8. مودال الإضافة
 // ============================
-document.getElementById('addEmployeeBtn')?.addEventListener('click', () => {
-  editingId = null;
-  document.getElementById('modalTitle').textContent = 'إضافة موظف جديد';
-  document.getElementById('employeeForm').reset();
-  document.getElementById('employeeId').value = '';
-  document.getElementById('status').value = 'نشط';
-  document.getElementById('commission').value = 0;
-  if (employeeModalInstance) employeeModalInstance.show();
+document.getElementById('editEmployeeBtn')?.addEventListener('click', async () => {
+  if (employees.length === 0) {
+    showToast('لا يوجد موظفون لتعديل بياناتهم', 'warning');
+    return;
+  }
+
+  const employeeOptions = Object.fromEntries(employees.map((employee) => [
+    employee.id,
+    `${employee.name || employee.email}${employee.email ? ` — ${employee.email}` : ''}`,
+  ]));
+  const result = await Swal.fire({
+    title: 'اختر الموظف',
+    input: 'select',
+    inputOptions: employeeOptions,
+    inputPlaceholder: 'اختر موظفاً لتعديل بياناته',
+    showCancelButton: true,
+    confirmButtonText: 'تعديل البيانات',
+    cancelButtonText: 'إلغاء',
+  });
+
+  if (result.value) openEditModal(result.value);
 });
 
 // ============================
@@ -310,6 +369,11 @@ document.getElementById('saveEmployeeBtn')?.addEventListener('click', async () =
 
   const id = document.getElementById('employeeId').value;
   const existingEmployee = employees.find((employee) => employee.id === id);
+  if (!id || !existingEmployee) {
+    showToast('اختر موظفاً موجوداً لتعديل بياناته', 'warning');
+    return;
+  }
+
   const saveBtn = document.getElementById('saveEmployeeBtn');
   saveBtn.disabled = true;
   saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>جاري الحفظ...';
@@ -327,7 +391,8 @@ document.getElementById('saveEmployeeBtn')?.addEventListener('click', async () =
     }
 
     const linkedEmployeeId = linkedUser?.data().employeeId;
-    if (linkedEmployeeId && linkedEmployeeId !== id) {
+    const allowedEmployeeIds = new Set([id, existingEmployee.uid, linkedUser?.id].filter(Boolean));
+    if (linkedEmployeeId && !allowedEmployeeIds.has(linkedEmployeeId)) {
       showToast('هذا الحساب مرتبط بسجل موظف آخر', 'warning');
       return;
     }
@@ -336,15 +401,14 @@ document.getElementById('saveEmployeeBtn')?.addEventListener('click', async () =
     const previousUid = existingEmployee?.uid || null;
     data.uid = linkedUser?.id || (emailUnchanged ? previousUid : null);
 
-    let employeeRef;
-    if (id) {
-      employeeRef = doc(db, 'employees', id);
-      await updateDoc(employeeRef, data);
-    } else {
+    const employeeRef = doc(db, 'employees', id);
+    if (existingEmployee.recordExists === false) {
       data.createdAt = new Date().toISOString();
       data.orderCount = 0;
       data.completionRate = 0;
-      employeeRef = await addDoc(collection(db, 'employees'), data);
+      await setDoc(employeeRef, data);
+    } else {
+      await updateDoc(employeeRef, data);
     }
 
     if (previousUid && previousUid !== data.uid) {
