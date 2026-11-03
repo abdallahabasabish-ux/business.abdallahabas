@@ -370,17 +370,15 @@ function renderEmployeeCheckboxes(selectedUids) {
     return;
   }
 
-  const activeEmployees = employees.filter((e) => !e.status || e.status === 'نشط');
-
   let html = '';
-  activeEmployees.forEach((emp) => {
+  employees.forEach((emp) => {
     const uid = emp.uid;
     const checked = selectedUids.includes(uid) ? 'checked' : '';
     html += `
       <div class="form-check">
         <input class="form-check-input emp-checkbox" type="checkbox" value="${uid}" id="emp_${uid}" ${checked}>
         <label class="form-check-label" for="emp_${uid}">
-          ${escapeHtml(emp.name)} <small class="text-muted">(${escapeHtml(emp.position || '')})</small>
+          ${escapeHtml(emp.name)} <small class="text-muted">(${escapeHtml(emp.position || '')}${emp.status ? ` - ${escapeHtml(emp.status)}` : ''})</small>
         </label>
       </div>
     `;
