@@ -13,6 +13,7 @@ import {
 import {
   ref, uploadBytes, getDownloadURL,
 } from 'firebase/storage';
+import { ensureCustomerSession } from './portal-session.js';
 
 // =============================================================
 // 1. دوال مساعدة
@@ -77,6 +78,7 @@ onAuthStateChanged(auth, async (user) => {
     window.location.href = 'portal-login.html';
     return;
   }
+  if (!(await ensureCustomerSession(user))) return;
 
   currentCustomerUid = user.uid;
   document.getElementById('portalLoading').style.display = 'none';
@@ -194,16 +196,20 @@ function showNewPaymentForm(orderId = null) {
   if (orderId) {
     // ابحث عن الطلب في الكاش
     const order = ordersCache.find((o) => o.id === orderId);
-    if (order) {
-      document.getElementById('orderId').value = orderId;
-      document.getElementById('orderDisplay').value =
-        `#${order.orderNumber || 'N/A'} — ${formatCurrency(order.total || 0)}`;
-      const remaining = (order.total || 0) - (order.paid || 0);
-      if (remaining > 0) {
-        document.getElementById('amount').value = remaining.toFixed(2);
-        document.getElementById('amountHint').textContent =
-          `المتبقّي على هذا الطلب: ${formatCurrency(remaining)}`;
-      }
+    if (!order) {
+      showToast('الطلب غير موجود ضمن طلبات حسابك', 'error');
+      hideNewPaymentForm();
+      return;
+    }
+
+    document.getElementById('orderId').value = orderId;
+    document.getElementById('orderDisplay').value =
+      `#${order.orderNumber || 'N/A'} — ${formatCurrency(order.total || 0)}`;
+    const remaining = (order.total || 0) - (order.paid || 0);
+    if (remaining > 0) {
+      document.getElementById('amount').value = remaining.toFixed(2);
+      document.getElementById('amountHint').textContent =
+        `المتبقّي على هذا الطلب: ${formatCurrency(remaining)}`;
     }
   }
 }

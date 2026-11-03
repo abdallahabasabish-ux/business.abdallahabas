@@ -202,7 +202,7 @@ document.getElementById('portalRegisterForm')?.addEventListener('submit', async 
     // هذا يسهّل الربط المباشر uid ↔ customerId
 
     showToast('تم إنشاء حسابك بنجاح! مرحباً بك.', 'success');
-    // onAuthStateChanged سيتولى التوجيه إلى portal-dashboard.html
+    window.location.replace('portal-dashboard.html');
   } catch (error) {
     console.error('Portal registration error:', error);
     let msg = 'حدث خطأ أثناء التسجيل.';

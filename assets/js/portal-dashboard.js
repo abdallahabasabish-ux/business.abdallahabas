@@ -13,8 +13,9 @@ import {
   onAuthStateChanged, signOut,
 } from 'firebase/auth';
 import {
-  collection, query, where, orderBy, limit, onSnapshot,
+  collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
+import { ensureCustomerSession } from './portal-session.js';
 
 // =============================================================
 // 1. دوال مساعدة
@@ -81,6 +82,7 @@ onAuthStateChanged(auth, async (user) => {
     window.location.href = 'portal-login.html';
     return;
   }
+  if (!(await ensureCustomerSession(user))) return;
 
   currentCustomerUid = user.uid;
   document.getElementById('welcomeName').textContent =
@@ -121,8 +123,7 @@ function loadOrders() {
   const q = query(
     collection(db, 'orders'),
     where('customerUid', '==', currentCustomerUid),
-    orderBy('createdAt', 'desc'),
-    limit(5)
+    orderBy('createdAt', 'desc')
   );
 
   onSnapshot(q, (snapshot) => {
@@ -131,7 +132,7 @@ function loadOrders() {
       ...doc.data(),
     }));
 
-    renderRecentOrders(allOrders);
+    renderRecentOrders(allOrders.slice(0, 5));
     updateStatsFromOrders();
   }, (error) => {
     console.warn('Could not load orders:', error);

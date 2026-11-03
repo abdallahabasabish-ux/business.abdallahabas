@@ -5,7 +5,7 @@
 // بدلاً من عرض كل المراحل الداخلية
 // =============================================================
 
-import { auth, db } from '../firebase-config.js';
+import { auth, db } from './firebase-config.js';
 import {
   onAuthStateChanged, signOut,
 } from 'firebase/auth';
@@ -13,6 +13,7 @@ import {
   collection, query, where, orderBy, onSnapshot,
   addDoc, serverTimestamp, getDocs,
 } from 'firebase/firestore';
+import { ensureCustomerSession } from './portal-session.js';
 
 function formatCurrency(amount, currency = '$') {
   if (amount === undefined || amount === null || isNaN(amount)) return `${currency}0.00`;
@@ -66,6 +67,7 @@ onAuthStateChanged(auth, async (user) => {
     window.location.href = 'portal-login.html';
     return;
   }
+  if (!(await ensureCustomerSession(user))) return;
 
   currentCustomerUid = user.uid;
   document.getElementById('portalLoading').style.display = 'none';
