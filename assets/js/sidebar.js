@@ -6,7 +6,7 @@ import {
   isAdmin, isAccountant, hasPermission, getUserData,
 } from './permissions.js';
 import { escapeHtml } from './init.js';
-import { getUnreadCount } from './notification-helper.js';
+import { subscribeUnreadCount } from './notification-helper.js';
 
 const MENU_SECTIONS = [
   {
@@ -66,6 +66,12 @@ const MENU_SECTIONS = [
   },
 ];
 
+let currentPageTracker = null;
+let currentNotificationUid = null;
+let stopNotificationListener = null;
+let permissionsListenerRegistered = false;
+let unreadNotificationCount = 0;
+
 export function renderSidebar(activePage) {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
@@ -109,51 +115,46 @@ export function renderSidebar(activePage) {
   sidebar.innerHTML = html;
 
   // تحديث شارة الإشعارات
-  if (uid) {
-    updateNotificationBadge(uid);
+  if (uid !== currentNotificationUid) {
+    stopNotificationListener?.();
+    currentNotificationUid = uid || null;
+    unreadNotificationCount = 0;
+    stopNotificationListener = uid
+      ? subscribeUnreadCount(uid, (count) => {
+        unreadNotificationCount = count;
+        updateNotificationBadge(count);
+      })
+      : null;
   }
+  updateNotificationBadge(unreadNotificationCount);
 }
 
-// تحديث شارة الإشعارات غير المقروءة
-async function updateNotificationBadge(uid) {
-  try {
-    const count = await getUnreadCount(uid);
-    const notifLink = document.querySelector('a[href="notifications.html"]');
-    if (!notifLink) return;
+function updateNotificationBadge(count) {
+  const notifLink = document.querySelector('a[href="notifications.html"]');
+  if (!notifLink) return;
 
-    // إزالة الشارة القديمة
-    const oldBadge = notifLink.querySelector('.notif-count');
-    if (oldBadge) oldBadge.remove();
+  const oldBadge = notifLink.querySelector('.notif-count');
+  if (oldBadge) oldBadge.remove();
 
-    if (count > 0) {
-      const badge = document.createElement('span');
-      badge.className = 'notif-count';
-      badge.style.cssText = 'position:absolute; top:-2px; left:-2px; background:#dc3545; color:#fff; font-size:10px; font-weight:700; border-radius:10px; padding:2px 6px; min-width:18px; text-align:center;';
-      badge.textContent = count > 99 ? '99+' : count;
-      notifLink.style.position = 'relative';
-      notifLink.appendChild(badge);
-    }
-  } catch (e) {
-    // تجاهل الأخطاء
+  if (count > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'notif-count';
+    badge.style.cssText = 'position:absolute; top:-2px; left:-2px; background:#dc3545; color:#fff; font-size:10px; font-weight:700; border-radius:10px; padding:2px 6px; min-width:18px; text-align:center;';
+    badge.textContent = count > 99 ? '99+' : count;
+    notifLink.style.position = 'relative';
+    notifLink.appendChild(badge);
   }
 }
-
-let currentPageTracker = null;
 
 export function initDynamicSidebar() {
   currentPageTracker = getCurrentPageName();
   renderSidebar(currentPageTracker);
+  if (permissionsListenerRegistered) return;
+
+  permissionsListenerRegistered = true;
   window.addEventListener('permissionsUpdated', () => {
     renderSidebar(currentPageTracker);
   });
-
-  // تحديث الشارة كل 30 ثانية
-  setInterval(() => {
-    const userData = getUserData();
-    if (userData?.uid) {
-      updateNotificationBadge(userData.uid);
-    }
-  }, 30000);
 }
 
 function getCurrentPageName() {

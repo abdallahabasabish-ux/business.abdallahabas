@@ -33,13 +33,6 @@ initPage({
     // القائمة الجانبية الديناميكية
     initDynamicSidebar();
 
-    // تحميل البيانات الأساسية
-    await loadEmployees();
-    await loadOrders();
-
-    // الاستماع للمهام
-    listenToTasks();
-
     // ربط الأحداث
     document.getElementById('addTaskBtn')?.addEventListener('click', openAddModal);
     document.getElementById('saveTaskBtn')?.addEventListener('click', saveTask);
@@ -71,6 +64,11 @@ initPage({
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 7);
     document.getElementById('taskDeadline').value = tomorrow.toISOString().slice(0, 10);
+
+    // ابدأ عرض المهام وربط الواجهة قبل اكتمال قراءات القوائم.
+    listenToTasks();
+    await Promise.all([loadEmployees(), loadOrders()]);
+    applyFilters();
   },
 });
 
@@ -183,6 +181,9 @@ function applyFilters() {
 // =============================================================
 function renderTasks(list) {
   const container = document.getElementById('tasksList');
+  if (!container) return;
+  const canAssignTasks = isAdmin() || hasPermission('canAssignTasks');
+  const canDeleteTasks = isAdmin();
 
   if (!list || list.length === 0) {
     container.innerHTML = `
@@ -251,7 +252,7 @@ function renderTasks(list) {
             ` : '<small class="text-warning mt-2 d-block"><i class="fas fa-exclamation"></i> غير معيّن</small>'}
           </div>
           <div class="d-flex gap-1 flex-wrap">
-            ${task.status === 'under_review' ? `
+            ${task.status === 'under_review' && canAssignTasks ? `
               <button class="btn btn-sm btn-outline-success approve-task-btn" data-id="${task.id}" title="اعتماد">
                 <i class="fas fa-check"></i>
               </button>
@@ -259,12 +260,12 @@ function renderTasks(list) {
                 <i class="fas fa-times"></i>
               </button>
             ` : ''}
-            <button class="btn btn-sm btn-outline-primary edit-task-btn" data-id="${task.id}" data-action-permission="canAssignTasks">
+            ${canAssignTasks ? `<button class="btn btn-sm btn-outline-primary edit-task-btn" data-id="${task.id}" title="تعديل المهمة">
               <i class="fas fa-edit"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-danger delete-task-btn" data-id="${task.id}">
+            </button>` : ''}
+            ${canDeleteTasks ? `<button class="btn btn-sm btn-outline-danger delete-task-btn" data-id="${task.id}" title="حذف المهمة">
               <i class="fas fa-trash"></i>
-            </button>
+            </button>` : ''}
           </div>
         </div>
         ${completionRate > 0 ? `
@@ -308,6 +309,8 @@ function openAddModal() {
   document.getElementById('taskId').value = '';
   document.getElementById('taskStatus').value = 'new';
 
+  const canAssignTasks = isAdmin() || hasPermission('canAssignTasks');
+  const canDeleteTasks = isAdmin();
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 7);
   document.getElementById('taskDeadline').value = tomorrow.toISOString().slice(0, 10);
@@ -374,7 +377,6 @@ function renderEmployeeCheckboxes(selectedUids) {
   container.innerHTML = html;
 }
 
-// =============================================================
 // 10. حفظ المهمة
 // =============================================================
 async function saveTask() {
@@ -382,12 +384,6 @@ async function saveTask() {
   const deadline = document.getElementById('taskDeadline').value;
 
   if (!title) {
-    showToast('عنوان المهمة مطلوب', 'warning');
-    return;
-  }
-
-  if (!deadline) {
-    showToast('الموعد النهائي مطلوب', 'warning');
     return;
   }
 

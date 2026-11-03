@@ -13,7 +13,9 @@
 // =============================================================
 
 import { db } from './firebase-config.js';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  collection, addDoc, onSnapshot, query, serverTimestamp, where,
+} from 'firebase/firestore';
 
 // =============================================================
 // 1. إنشاء إشعار
@@ -138,6 +140,25 @@ export async function getUnreadCount(userId) {
   } catch (error) {
     return 0;
   }
+}
+
+export function subscribeUnreadCount(userId, callback) {
+  if (!userId) return () => {};
+
+  const unreadQuery = query(
+    collection(db, 'notifications'),
+    where('userId', '==', userId),
+    where('read', '==', false)
+  );
+
+  return onSnapshot(
+    unreadQuery,
+    (snapshot) => callback(snapshot.size),
+    (error) => {
+      console.warn('Could not listen to unread notifications:', error);
+      callback(0);
+    }
+  );
 }
 
 console.log('✅ notification-helper.js loaded');

@@ -10,43 +10,20 @@
 
 import { auth } from './firebase-config.js';
 import { onAuthStateChanged } from 'firebase/auth';
-import { initPermissions, stopPermissions, getUserData } from './permissions.js';
-import { initDynamicSidebar, renderSidebar } from './sidebar.js';
+import { initPermissions, stopPermissions } from './permissions.js';
+import { initDynamicSidebar } from './sidebar.js';
 
-let initialized = false;
-
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    // تهيئة الصلاحيات
-    initPermissions(user);
-
-    // انتظار تحميل بيانات المستخدم ثم عرض القائمة
-    const tryRender = () => {
-      const userData = getUserData();
-      if (userData) {
-        if (!initialized) {
-          initialized = true;
-          initDynamicSidebar();
-        } else {
-          // إعادة العرض عند تحديث الصلاحيات
-          renderSidebar(window.location.pathname.split('/').pop() || 'dashboard.html');
-        }
-      } else {
-        // المحاولة مرة أخرى بعد 200ms
-        setTimeout(tryRender, 200);
-      }
-    };
-
-    // ابدأ المحاولة بعد فترة قصيرة لتهيئة الصلاحيات
-    setTimeout(tryRender, 300);
-
-    // استمع لتحديثات الصلاحيات لإعادة عرض القائمة
-    window.addEventListener('permissionsUpdated', () => {
-      renderSidebar(window.location.pathname.split('/').pop() || 'dashboard.html');
-    });
-  } else {
-    initialized = false;
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
     stopPermissions();
+    return;
+  }
+
+  try {
+    const userData = await initPermissions(user);
+    if (userData?.uid === user.uid) initDynamicSidebar();
+  } catch (error) {
+    console.warn('Could not initialize the sidebar:', error);
   }
 });
 

@@ -45,11 +45,18 @@ const STAGES = [
 initPage({
   onReady: async () => {
     initDynamicSidebar();
-    await loadSelectOptions();
-    listenToOrders();
 
-    document.getElementById('addOrderBtn')?.addEventListener('click', openAddModal);
-    document.getElementById('saveOrderBtn')?.addEventListener('click', saveOrder);
+    if (!isAdmin() && !hasPermission('canViewOrders')) {
+      window.location.replace('dashboard.html');
+      return;
+    }
+
+    const addOrderButton = document.getElementById('addOrderBtn');
+    const canCreateOrders = isAdmin() || hasPermission('canCreateOrders');
+    if (addOrderButton) {
+      addOrderButton.hidden = !canCreateOrders;
+      if (canCreateOrders) addOrderButton.addEventListener('click', openAddModal);
+    }
     document.getElementById('searchInput')?.addEventListener('input', handleSearch);
 
     const modalEl = document.getElementById('orderModal');
@@ -60,6 +67,9 @@ initPage({
         document.getElementById('orderId').value = '';
       });
     }
+
+    loadSelectOptions();
+    listenToOrders();
   },
 });
 
@@ -152,6 +162,8 @@ function listenToOrders() {
 function renderTable(data) {
   const tbody = document.getElementById('ordersTableBody');
   if (!tbody) return;
+  const canUpdateOrders = isAdmin() || hasPermission('canUpdateOrders');
+  const canDeleteOrders = isAdmin();
 
   if (!data || data.length === 0) {
     tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">لا يوجد طلبات</td></tr>`;
@@ -216,17 +228,17 @@ function renderTable(data) {
           </div>
         </td>
         <td>
-          ${order.approvalStatus === 'pending' ? `
+          ${order.approvalStatus === 'pending' && canUpdateOrders ? `
             <button class="btn btn-sm btn-outline-success approve-order-btn" data-id="${order.id}" title="موافقة">
               <i class="fas fa-check"></i>
             </button>
           ` : ''}
-          <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${order.id}" title="تعديل">
+          ${canUpdateOrders ? `<button class="btn btn-sm btn-outline-primary edit-btn" data-id="${order.id}" title="تعديل">
             <i class="fas fa-edit"></i>
-          </button>
-          <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${order.id}" title="حذف">
+          </button>` : ''}
+          ${canDeleteOrders ? `<button class="btn btn-sm btn-outline-danger delete-btn" data-id="${order.id}" title="حذف">
             <i class="fas fa-trash"></i>
-          </button>
+          </button>` : ''}
         </td>
       </tr>
     `;

@@ -395,16 +395,26 @@ export async function computeAnalyticsSummary(dateFrom, dateTo) {
     ? Math.ceil((new Date(dateTo) - new Date(dateFrom)) / (1000 * 60 * 60 * 24))
     : 30;
 
-  // الفترة الحالية
-  const current = await computeFinancialSummary(dateFrom, dateTo);
-
   // الفترة السابقة (نفس المدى قبلها)
   const prevFrom = dateFrom ? new Date(dateFrom) : null;
   const prevTo = dateTo ? new Date(dateTo) : null;
   if (prevFrom) prevFrom.setDate(prevFrom.getDate() - days);
   if (prevTo) prevTo.setDate(prevTo.getDate() - days);
 
-  const previous = await computeFinancialSummary(prevFrom, prevTo);
+  const [[current, previous], [inquiriesSnap, customersSnap, ordersSnap, servicesSnap, expensesSnap, ledgerSnap]] = await Promise.all([
+    Promise.all([
+      computeFinancialSummary(dateFrom, dateTo),
+      computeFinancialSummary(prevFrom, prevTo),
+    ]),
+    Promise.all([
+      getDocs(collection(db, 'inquiries')),
+      getDocs(collection(db, 'customers')),
+      getDocs(collection(db, 'orders')),
+      getDocs(collection(db, 'services')),
+      getDocs(collection(db, 'expenses')),
+      getDocs(collection(db, 'employeeLedger')),
+    ]),
+  ]);
 
   // معدلات النمو
   const growth = {
@@ -417,16 +427,6 @@ export async function computeAnalyticsSummary(dateFrom, dateTo) {
     expensesCount: computeGrowthRate(current.expensesCount, previous.expensesCount),
     approvedPaymentsCount: computeGrowthRate(current.approvedPaymentsCount, previous.approvedPaymentsCount),
   };
-
-  // جلب بيانات إضافية للتحليلات
-  const [inquiriesSnap, customersSnap, ordersSnap, servicesSnap, expensesSnap, ledgerSnap] = await Promise.all([
-    getDocs(collection(db, 'inquiries')),
-    getDocs(collection(db, 'customers')),
-    getDocs(collection(db, 'orders')),
-    getDocs(collection(db, 'services')),
-    getDocs(collection(db, 'expenses')),
-    getDocs(collection(db, 'employeeLedger')),
-  ]);
 
   const inquiries = inquiriesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const customers = customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));

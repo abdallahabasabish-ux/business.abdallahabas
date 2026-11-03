@@ -76,7 +76,13 @@ async function loadData(customFrom, customTo) {
     renderGrowthCharts(summary);
     renderFunnel(summary);
     renderServiceProfitability(summary);
-    renderEmployeePerformance(summary, dateFrom, dateTo);
+    const employeePerformanceSection = document.getElementById('employeePerformanceBody')?.closest('.ana-section');
+    if (hasPermission('canViewEmployees') && hasPermission('canViewTasks')) {
+      if (employeePerformanceSection) employeePerformanceSection.hidden = false;
+      await renderEmployeePerformance(summary, dateFrom, dateTo);
+    } else if (employeePerformanceSection) {
+      employeePerformanceSection.hidden = true;
+    }
     renderRetention(summary);
     renderOrderStatusChart(summary);
     renderForecasts(summary);
