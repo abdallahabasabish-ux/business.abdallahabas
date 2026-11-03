@@ -492,6 +492,7 @@ document.getElementById('saveOrderBtn')?.addEventListener('click', async () => {
   // الحصول على customerUid من الخيار المختار
   const selectedOption = document.getElementById('customer').selectedOptions[0];
   const customerUid = selectedOption?.dataset.uid || null;
+  const customerName = selectedOption?.textContent?.trim() || null;
 
   const status = document.getElementById('status').value;
 
@@ -506,6 +507,7 @@ document.getElementById('saveOrderBtn')?.addEventListener('click', async () => {
   const data = {
     customerId,
     customerUid,
+    customerName,
     serviceId,
     assignedEmployeeIds: selectedEmps,
     employeeId: selectedEmps[0] || null, // الاحتفاظ بالحقل القائم (أول موظف)

@@ -16,6 +16,21 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
+async function createPendingEmployeeProfile(user, displayName) {
+  await setDoc(doc(db, 'employees', user.uid), {
+    uid: user.uid,
+    email: user.email,
+    name: displayName || user.email,
+    position: 'بانتظار التحديد',
+    phone: '',
+    status: 'بانتظار التفعيل',
+    orderCount: 0,
+    completionRate: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 // =============================================================
 // دوال مساعدة (Toast)
 // =============================================================
@@ -156,19 +171,22 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
 
     if (name) await updateProfile(user, { displayName: name });
 
+    await createPendingEmployeeProfile(user, name || user.email);
+
     // إنشاء وثيقة المستخدم بدور موظف افتراضي
     await setDoc(doc(db, 'users', user.uid), {
       email: user.email,
       displayName: name || user.email,
       role: 'موظف',
       disabled: false,
+      employeeId: user.uid,
       permissions: {}, // المدير يحدّد الصلاحيات لاحقًا
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
     showToast('تم إنشاء الحساب! سيتم توجيهك للوحة الموظف.', 'success');
-    // onAuthStateChanged سيتولى التوجيه
+    window.location.replace('employee-dashboard.html');
   } catch (error) {
     let msg = 'حدث خطأ أثناء التسجيل.';
     if (error.code === 'auth/email-already-in-use') msg = 'البريد الإلكتروني مستخدم بالفعل.';
@@ -195,15 +213,18 @@ async function handleGoogleSignIn() {
 
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     if (!userDoc.exists()) {
+      await createPendingEmployeeProfile(user, user.displayName || user.email);
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         displayName: user.displayName || user.email,
         role: 'موظف',
         disabled: false,
+        employeeId: user.uid,
         permissions: {},
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      window.location.replace('employee-dashboard.html');
     }
   } catch (error) {
     let msg = 'فشل تسجيل الدخول عبر Google.';

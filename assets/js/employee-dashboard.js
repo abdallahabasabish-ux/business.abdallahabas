@@ -17,7 +17,7 @@ import {
   doc, getDoc,
 } from 'firebase/firestore';
 import {
-  initPermissions, getUserData, isStaff, isAdmin,
+  initPermissions, isStaff, isAdmin,
 } from './permissions.js';
 
 // =============================================================
@@ -101,53 +101,48 @@ onAuthStateChanged(auth, async (user) => {
   currentUid = user.uid;
 
   // تهيئة الصلاحيات
-  initPermissions(user);
+  const userData = await initPermissions(user);
 
-  // انتظار تحميل بيانات المستخدم
-  setTimeout(async () => {
-    const userData = getUserData();
+  if (!userData) {
+    // المستخدم ليس له وثيقة في users — ربما عميل
+    window.location.href = 'portal-login.html';
+    return;
+  }
 
-    if (!userData) {
-      // المستخدم ليس له وثيقة في users — ربما عميل
-      window.location.href = 'portal-login.html';
-      return;
-    }
+  // المدير يذهب للوحة الإدارة
+  if (isAdmin()) {
+    window.location.href = 'dashboard.html';
+    return;
+  }
 
-    // المدير يذهب للوحة الإدارة
-    if (isAdmin()) {
-      window.location.href = 'dashboard.html';
-      return;
-    }
+  if (!isStaff()) {
+    // ليس موظفًا — ربما عميل
+    window.location.href = 'portal-login.html';
+    return;
+  }
 
-    if (!isStaff()) {
-      // ليس موظفًا — ربما عميل
-      window.location.href = 'portal-login.html';
-      return;
-    }
+  // موظف — اعرض اللوحة
+  document.getElementById('empLoading').style.display = 'none';
+  document.getElementById('empContent').style.display = 'block';
 
-    // موظف — اعرض اللوحة
-    document.getElementById('empLoading').style.display = 'none';
-    document.getElementById('empContent').style.display = 'block';
+  document.getElementById('empWelcome').textContent =
+    `مرحباً ${user.displayName || userData.email || 'موظف'}`;
 
-    document.getElementById('empWelcome').textContent =
-      `مرحباً ${user.displayName || userData.email || 'موظف'}`;
+  const roleLabels = {
+    'مدير': 'مدير النظام', 'محاسب': 'محاسب',
+    'مشرف': 'مشرف', 'موظف': 'موظف',
+  };
+  document.getElementById('empRole').textContent = roleLabels[userData.role] || userData.role;
 
-    const roleLabels = {
-      'مدير': 'مدير النظام', 'محاسب': 'محاسب',
-      'مشرف': 'مشرف', 'موظف': 'موظف',
-    };
-    document.getElementById('empRole').textContent = roleLabels[userData.role] || userData.role;
+  // تحميل البيانات
+  loadMyTasks();
+  loadEarnings();
 
-    // تحميل البيانات
-    loadMyTasks();
-    loadEarnings();
-
-    // زر الخروج
-    document.getElementById('empLogoutBtn')?.addEventListener('click', async () => {
-      try { await signOut(auth); } catch (e) {}
-      window.location.href = 'login.html';
-    });
-  }, 800);
+  // زر الخروج
+  document.getElementById('empLogoutBtn')?.addEventListener('click', async () => {
+    try { await signOut(auth); } catch (e) {}
+    window.location.href = 'login.html';
+  });
 });
 
 // =============================================================
@@ -219,6 +214,7 @@ function renderMyTasks(tasks) {
               ${task.priority ? `<span class="priority-${task.priority}"><i class="fas fa-flag"></i> ${escapeHtml(task.priority)}</span> • ` : ''}
               <i class="fas fa-calendar"></i> ${formatDate(task.deadline)}
               ${deadlineLabel}
+              ${task.customerName ? ` • العميل: ${escapeHtml(task.customerName)}` : ''}
               ${task.compensation ? ` • <i class="fas fa-dollar-sign"></i> ${formatCurrency(task.compensation)}` : ''}
             </div>
           </div>

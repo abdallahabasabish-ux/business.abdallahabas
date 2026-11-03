@@ -395,10 +395,15 @@ async function saveTask() {
     return;
   }
 
+  const orderId = document.getElementById('taskOrder').value || null;
+  const linkedOrder = orders.find((order) => order.id === orderId);
   const data = {
     title,
     description: document.getElementById('taskDescription').value.trim(),
-    orderId: document.getElementById('taskOrder').value || null,
+    orderId,
+    customerId: linkedOrder?.customerId || null,
+    customerUid: linkedOrder?.customerUid || null,
+    customerName: linkedOrder?.customerName || null,
     deadline: new Date(deadline + 'T23:59:59'),
     assignedEmployeeIds: selectedEmps,
     priority: document.getElementById('taskPriority').value,

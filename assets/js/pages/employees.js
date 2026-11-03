@@ -8,18 +8,30 @@ import {
   deleteDoc,
   onSnapshot,
   query,
-  orderBy
+  orderBy,
+  getDoc,
+  getDocs,
+  where,
+  writeBatch,
+  deleteField,
 } from 'firebase/firestore';
 
 let employees = [];
 let editingId = null;
 let employeesListener = null;
 
-onAuthStateChangedCallback((user) => {
+onAuthStateChangedCallback(async (user) => {
   if (!user) {
     window.location.href = '../login.html';
     return;
   }
+
+  const userSnapshot = await getDoc(doc(db, 'users', user.uid));
+  if (!userSnapshot.exists() || userSnapshot.data().role !== 'مدير') {
+    window.location.replace('../dashboard.html');
+    return;
+  }
+
   const sidebarUserName = document.getElementById('sidebarUserName');
   const sidebarUserEmail = document.getElementById('sidebarUserEmail');
   const sidebarAvatar = document.getElementById('sidebarAvatar');
@@ -297,21 +309,68 @@ document.getElementById('saveEmployeeBtn')?.addEventListener('click', async () =
   };
 
   const id = document.getElementById('employeeId').value;
+  const existingEmployee = employees.find((employee) => employee.id === id);
   const saveBtn = document.getElementById('saveEmployeeBtn');
   saveBtn.disabled = true;
   saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>جاري الحفظ...';
 
   try {
+    let linkedUser = null;
+    if (data.email) {
+      const usersSnapshot = await getDocs(query(
+        collection(db, 'users'),
+        where('email', '==', data.email.toLowerCase())
+      ));
+      linkedUser = usersSnapshot.docs.find((userDoc) =>
+        ['موظف', 'مشرف'].includes(userDoc.data().role)
+      ) || null;
+    }
+
+    const linkedEmployeeId = linkedUser?.data().employeeId;
+    if (linkedEmployeeId && linkedEmployeeId !== id) {
+      showToast('هذا الحساب مرتبط بسجل موظف آخر', 'warning');
+      return;
+    }
+
+    const emailUnchanged = existingEmployee?.email?.trim().toLowerCase() === data.email.toLowerCase();
+    const previousUid = existingEmployee?.uid || null;
+    data.uid = linkedUser?.id || (emailUnchanged ? previousUid : null);
+
+    let employeeRef;
     if (id) {
-      await updateDoc(doc(db, 'employees', id), data);
-      showToast('تم تحديث بيانات الموظف بنجاح', 'success');
+      employeeRef = doc(db, 'employees', id);
+      await updateDoc(employeeRef, data);
     } else {
       data.createdAt = new Date().toISOString();
       data.orderCount = 0;
       data.completionRate = 0;
-      await addDoc(collection(db, 'employees'), data);
-      showToast('تم إضافة الموظف بنجاح', 'success');
+      employeeRef = await addDoc(collection(db, 'employees'), data);
     }
+
+    if (previousUid && previousUid !== data.uid) {
+      await updateDoc(doc(db, 'users', previousUid), {
+        employeeId: deleteField(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    if (linkedUser) {
+      await updateDoc(doc(db, 'users', linkedUser.id), {
+        employeeId: employeeRef.id,
+        updatedAt: new Date().toISOString(),
+      });
+
+      try {
+        await migrateEmployeeReferences(employeeRef.id, linkedUser.id);
+      } catch (migrationError) {
+        console.error('Could not migrate employee references:', migrationError);
+        showToast('تم ربط الحساب، لكن تعذّر تحديث بعض السجلات القديمة', 'warning');
+      }
+    }
+
+    showToast(linkedUser
+      ? 'تم حفظ الموظف وربط حسابه ومهامه ورواتبه'
+      : 'تم حفظ الموظف. لم يُعثر على حساب موظف بهذا البريد لربطه.', linkedUser ? 'success' : 'warning');
     if (employeeModalInstance) employeeModalInstance.hide();
   } catch (error) {
     console.error('Error saving employee:', error);
@@ -321,6 +380,50 @@ document.getElementById('saveEmployeeBtn')?.addEventListener('click', async () =
     saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>حفظ';
   }
 });
+
+async function migrateEmployeeReferences(employeeId, userUid) {
+  const [tasksSnapshot, ordersByAssignee, ordersByEmployee, ledgerByEmployee, ledgerByUid] = await Promise.all([
+    getDocs(query(collection(db, 'tasks'), where('assignedEmployeeIds', 'array-contains', employeeId))),
+    getDocs(query(collection(db, 'orders'), where('assignedEmployeeIds', 'array-contains', employeeId))),
+    getDocs(query(collection(db, 'orders'), where('employeeId', '==', employeeId))),
+    getDocs(query(collection(db, 'employeeLedger'), where('employeeId', '==', employeeId))),
+    getDocs(query(collection(db, 'employeeLedger'), where('employeeUid', '==', employeeId))),
+  ]);
+
+  const updates = new Map();
+  const replaceEmployeeId = (ids = []) => [...new Set(ids.map((id) => id === employeeId ? userUid : id))];
+
+  tasksSnapshot.docs.forEach((taskDoc) => {
+    updates.set(taskDoc.ref.path, {
+      ref: taskDoc.ref,
+      data: { assignedEmployeeIds: replaceEmployeeId(taskDoc.data().assignedEmployeeIds) },
+    });
+  });
+
+  [...ordersByAssignee.docs, ...ordersByEmployee.docs].forEach((orderDoc) => {
+    const order = orderDoc.data();
+    const data = { employeeUid: userUid };
+    if (Array.isArray(order.assignedEmployeeIds)) {
+      data.assignedEmployeeIds = replaceEmployeeId(order.assignedEmployeeIds);
+    }
+    if (order.employeeId === employeeId) data.employeeId = userUid;
+    updates.set(orderDoc.ref.path, { ref: orderDoc.ref, data });
+  });
+
+  [...ledgerByEmployee.docs, ...ledgerByUid.docs].forEach((entryDoc) => {
+    updates.set(entryDoc.ref.path, {
+      ref: entryDoc.ref,
+      data: { employeeUid: userUid },
+    });
+  });
+
+  const changes = [...updates.values()];
+  for (let offset = 0; offset < changes.length; offset += 450) {
+    const batch = writeBatch(db);
+    changes.slice(offset, offset + 450).forEach(({ ref, data }) => batch.update(ref, data));
+    await batch.commit();
+  }
+}
 
 // ============================
 // 11. حذف موظف

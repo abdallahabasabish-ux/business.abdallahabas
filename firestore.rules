@@ -112,6 +112,8 @@ service cloud.firestore {
          && request.resource.data.role == 'موظف'
          && request.resource.data.email is string
          && request.resource.data.email != ''
+         && (!('employeeId' in request.resource.data)
+           || request.resource.data.employeeId == uid)
          && (request.resource.data.disabled == false
              || !('disabled' in request.resource.data)))
         || isAdmin()
@@ -123,7 +125,7 @@ service cloud.firestore {
       //   (هذا يمنع المستخدم من ترقية نفسه)
       allow update: if isAdmin()
         || (isSignedIn() && uid == currentUid()
-            && fieldsNotChanged(['role', 'disabled', 'permissions']));
+            && fieldsNotChanged(['role', 'disabled', 'permissions', 'employeeId']));
 
       // الحذف: مدير فقط
       allow delete: if isAdmin();
@@ -177,9 +179,23 @@ service cloud.firestore {
         || (resource.data.uid == currentUid())
       );
 
-      // الكتابة (إنشاء/تحديث/حذف): مدير فقط
-      // ملاحظة: الموظف لا يغيّر راتله أو عمولته بنفسه
-      allow create, update, delete: if isAdmin();
+      // الموظف ينشئ ملفًا أوليًا محدودًا فقط؛ البيانات المالية للمدير.
+      allow create: if isAdmin() || (
+        isSignedIn()
+        && employeeId == currentUid()
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.status == 'بانتظار التفعيل'
+        && request.resource.data.orderCount == 0
+        && request.resource.data.completionRate == 0
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'name', 'position', 'phone', 'status',
+          'orderCount', 'completionRate', 'createdAt', 'updatedAt'
+        ])
+      );
+
+      // التحديث والحذف: مدير فقط، لحماية الراتب والعمولة.
+      allow update, delete: if isAdmin();
     }
 
     // ============================================================
