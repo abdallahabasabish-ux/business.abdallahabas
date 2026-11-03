@@ -360,7 +360,7 @@ service cloud.firestore {
 
       allow read: if isSignedIn() && (
         isAdmin()
-        || hasPermission('canViewTasks')
+        || hasPermission('canAssignTasks')
         || (resource.data.assignedEmployeeIds != null
             && resource.data.assignedEmployeeIds.hasAny([currentUid()]))
       );

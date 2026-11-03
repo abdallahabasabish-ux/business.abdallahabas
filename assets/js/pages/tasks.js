@@ -77,8 +77,14 @@ initPage({
 // =============================================================
 async function loadEmployees() {
   try {
-    const snap = await getDocs(collection(db, 'employees'));
-    employees = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const employeesRef = collection(db, 'employees');
+    const employeesQuery = isAdmin() || hasPermission('canViewEmployees')
+      ? query(employeesRef, where('uid', '>', ''))
+      : query(employeesRef, where('uid', '==', getCurrentUid()));
+    const snap = await getDocs(employeesQuery);
+    employees = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((employee) => employee.uid);
 
     // تعبئة قائمة الفلتر
     const filter = document.getElementById('employeeFilter');
@@ -86,7 +92,7 @@ async function loadEmployees() {
       filter.innerHTML = '<option value="">كل الموظفين</option>';
       employees.forEach((e) => {
         const opt = document.createElement('option');
-        opt.value = e.uid || e.id;
+        opt.value = e.uid;
         opt.textContent = e.name;
         filter.appendChild(opt);
       });
@@ -125,7 +131,13 @@ async function loadOrders() {
 function listenToTasks() {
   if (tasksListener) tasksListener();
 
-  const q = query(collection(db, 'tasks'), orderBy('createdAt', 'desc'));
+  const q = isAdmin() || hasPermission('canAssignTasks')
+    ? query(collection(db, 'tasks'), orderBy('createdAt', 'desc'))
+    : query(
+      collection(db, 'tasks'),
+      where('assignedEmployeeIds', 'array-contains', getCurrentUid()),
+      orderBy('createdAt', 'desc')
+    );
   tasksListener = onSnapshot(q, (snapshot) => {
     tasks = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
     applyFilters();
@@ -362,7 +374,7 @@ function renderEmployeeCheckboxes(selectedUids) {
 
   let html = '';
   activeEmployees.forEach((emp) => {
-    const uid = emp.uid || emp.id;
+    const uid = emp.uid;
     const checked = selectedUids.includes(uid) ? 'checked' : '';
     html += `
       <div class="form-check">

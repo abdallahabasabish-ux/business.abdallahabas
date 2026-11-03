@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { initPage, escapeHtml, showToast } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
-import { getCurrentUid, getUserData } from '../permissions.js';
+import { getCurrentUid, getUserData, isAdmin } from '../permissions.js';
 import { log } from '../activity-log-helper.js';
 import { createNotification, NotificationTemplates } from '../notification-helper.js';
 
@@ -25,8 +25,12 @@ let newConvModalInstance = null;
 initPage({
   onReady: async () => {
     initDynamicSidebar();
-    await loadCustomers();
-    await loadOrders();
+    if (isAdmin()) {
+      await loadCustomers();
+      await loadOrders();
+    } else {
+      document.getElementById('newConvBtn')?.style.setProperty('display', 'none');
+    }
     listenToConversations();
 
     document.getElementById('newConvBtn')?.addEventListener('click', openNewConvModal);
@@ -68,7 +72,13 @@ async function loadOrders() {
 // =============================================================
 function listenToConversations() {
   if (convListener) convListener();
-  const q = query(collection(db, 'conversations'), orderBy('lastMessageAt', 'desc'));
+  const q = isAdmin()
+    ? query(collection(db, 'conversations'), orderBy('lastMessageAt', 'desc'))
+    : query(
+      collection(db, 'conversations'),
+      where('employeeUid', '==', getCurrentUid()),
+      orderBy('lastMessageAt', 'desc')
+    );
   convListener = onSnapshot(q, (snapshot) => {
     conversations = snapshot.docs.map((d) => ({
       id: d.id, ...d.data(),
