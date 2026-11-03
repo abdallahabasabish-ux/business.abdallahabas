@@ -79,7 +79,7 @@ initPage({
 async function loadSelectOptions() {
   try {
     const [customersSnap, servicesSnap, employeesSnap] = await Promise.all([
-      getDocs(collection(db, 'customers')),
+      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
       getDocs(collection(db, 'services')),
       getDocs(query(collection(db, 'employees'), where('status', '==', 'نشط'))),
     ]);

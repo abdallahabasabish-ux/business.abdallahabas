@@ -6,7 +6,7 @@
 // =============================================================
 
 import { db } from './firebase-config.js';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { computeFinancialSummary, formatCurrency, formatDate } from './accounting.js';
 
 // =============================================================
@@ -408,7 +408,7 @@ export async function computeAnalyticsSummary(dateFrom, dateTo) {
     ]),
     Promise.all([
       getDocs(collection(db, 'inquiries')),
-      getDocs(collection(db, 'customers')),
+      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
       getDocs(collection(db, 'orders')),
       getDocs(collection(db, 'services')),
       getDocs(collection(db, 'expenses')),

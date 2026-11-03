@@ -11,7 +11,7 @@
 import { onAuthStateChangedCallback, logoutUser } from './auth.js';
 import { db } from './firebase-config.js';
 import {
-  collection, getDocs, query, orderBy, limit, onSnapshot, Timestamp,
+  collection, getDocs, query, orderBy, limit, onSnapshot, Timestamp, where,
 } from 'firebase/firestore';
 import {
   initPermissions, getUserData, isAdmin, applyPermissionsToUI,
@@ -29,6 +29,14 @@ let chartInstances = {};
 let allOrders = [];
 let recentPayments = [];
 let recentCustomers = [];
+
+function sortNewestCustomers(customers) {
+  return [...customers].sort((a, b) => {
+    const aDate = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+    const bDate = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+    return bDate - aDate;
+  });
+}
 
 // دوال مساعدة
 function showToast(message, type = 'success') {
@@ -141,8 +149,9 @@ async function loadDashboardData() {
     updateStats(summary);
 
     // جلب العملاء والطلبات للجداول
-    const customersSnap = await getDocs(collection(db, 'customers'));
+    const customersSnap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
     customersCount = customersSnap.size;
+    recentCustomers = sortNewestCustomers(customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }))).slice(0, 5);
 
     const ordersSnap = await getDocs(collection(db, 'orders'));
     allOrders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -161,9 +170,7 @@ async function loadDashboardData() {
 
     // آخر 5 عملاء
     try {
-      const q = query(collection(db, 'customers'), orderBy('createdAt', 'desc'), limit(5));
-      const recentSnap = await getDocs(q);
-      recentCustomers = recentSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      recentCustomers = sortNewestCustomers(recentCustomers).slice(0, 5);
     } catch (e) { recentCustomers = []; }
 
     updateRecentPayments();
@@ -377,7 +384,7 @@ function updateCharts(ordersData) {
 // الاستماع للتحديثات الفورية
 // =============================================================
 function listenToRealtimeUpdates() {
-  onSnapshot(collection(db, 'customers'), (snapshot) => {
+  onSnapshot(query(collection(db, 'customers'), where('uid', '>', '')), (snapshot) => {
     customersCount = snapshot.size;
     const el = document.getElementById('statCustomers');
     if (el) el.textContent = customersCount;
@@ -394,8 +401,8 @@ function listenToRealtimeUpdates() {
     updateCharts(allOrders);
   }, (e) => console.warn(e));
 
-  onSnapshot(query(collection(db, 'customers'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
-    recentCustomers = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+  onSnapshot(query(collection(db, 'customers'), where('uid', '>', '')), (snapshot) => {
+    recentCustomers = sortNewestCustomers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))).slice(0, 5);
     updateRecentCustomers();
   }, (e) => console.warn(e));
 }

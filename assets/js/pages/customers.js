@@ -12,7 +12,7 @@ import {
   deleteDoc,
   onSnapshot,
   query,
-  orderBy,
+  where,
   Timestamp
 } from 'firebase/firestore';
 
@@ -198,12 +198,16 @@ function listenToCustomers() {
   if (customersListener) customersListener();
 
   customersListener = onSnapshot(
-    query(collection(db, 'customers'), orderBy('createdAt', 'desc')),
+    query(collection(db, 'customers'), where('uid', '>', '')),
     (snapshot) => {
       customers = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data()
-      }));
+      })).sort((a, b) => {
+        const aDate = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+        const bDate = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+        return bDate - aDate;
+      });
       applyFiltersAndRender();
     },
     (error) => {

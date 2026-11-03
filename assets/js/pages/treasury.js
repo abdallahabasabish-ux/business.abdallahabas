@@ -7,6 +7,7 @@ import {
   onSnapshot,
   query,
   orderBy,
+  where,
   Timestamp,
   doc,
   updateDoc,
@@ -187,7 +188,7 @@ function initSidebar() {
 // =============================================================
 async function loadCustomers() {
   try {
-    const snap = await getDocs(collection(db, 'customers'));
+    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
     customers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     populateCustomerSelect();
   } catch (error) {

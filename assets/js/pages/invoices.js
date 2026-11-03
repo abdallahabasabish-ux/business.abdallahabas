@@ -86,7 +86,7 @@ async function loadSettings() {
 async function loadCustomersAndServices() {
   try {
     const [customersSnap, servicesSnap] = await Promise.all([
-      getDocs(collection(db, 'customers')),
+      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
       getDocs(collection(db, 'services'))
     ]);
     customers = customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));

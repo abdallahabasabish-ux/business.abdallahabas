@@ -44,7 +44,7 @@ initPage({
 
 async function loadCustomers() {
   try {
-    const snap = await getDocs(collection(db, 'customers'));
+    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
     customers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const select = document.getElementById('newConvCustomer');
     if (select) {
