@@ -20,6 +20,7 @@ import { initDynamicSidebar } from './sidebar.js';
 import {
   computeFinancialSummary, formatCurrency, formatDate, escapeHtml,
 } from './accounting.js';
+import { getVisibleCustomers, listenToVisibleCustomers } from './customer-data.js';
 
 // متغيرات عامة
 let customersCount = 0;
@@ -149,9 +150,9 @@ async function loadDashboardData() {
     updateStats(summary);
 
     // جلب العملاء والطلبات للجداول
-    const customersSnap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
-    customersCount = customersSnap.size;
-    recentCustomers = sortNewestCustomers(customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }))).slice(0, 5);
+    const visibleCustomers = await getVisibleCustomers(db);
+    customersCount = visibleCustomers.length;
+    recentCustomers = sortNewestCustomers(visibleCustomers).slice(0, 5);
 
     const ordersSnap = await getDocs(collection(db, 'orders'));
     allOrders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -384,8 +385,8 @@ function updateCharts(ordersData) {
 // الاستماع للتحديثات الفورية
 // =============================================================
 function listenToRealtimeUpdates() {
-  onSnapshot(query(collection(db, 'customers'), where('uid', '>', '')), (snapshot) => {
-    customersCount = snapshot.size;
+  listenToVisibleCustomers(db, (customers) => {
+    customersCount = customers.length;
     const el = document.getElementById('statCustomers');
     if (el) el.textContent = customersCount;
   }, (e) => console.warn(e));
@@ -401,8 +402,8 @@ function listenToRealtimeUpdates() {
     updateCharts(allOrders);
   }, (e) => console.warn(e));
 
-  onSnapshot(query(collection(db, 'customers'), where('uid', '>', '')), (snapshot) => {
-    recentCustomers = sortNewestCustomers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))).slice(0, 5);
+  listenToVisibleCustomers(db, (customers) => {
+    recentCustomers = sortNewestCustomers(customers).slice(0, 5);
     updateRecentCustomers();
   }, (e) => console.warn(e));
 }

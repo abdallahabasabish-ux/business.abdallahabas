@@ -18,6 +18,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { initPermissions, isAdmin, isAccountant, hasPermission } from '../permissions.js';
+import { getVisibleCustomers } from '../customer-data.js';
 
 let invoices = [];
 let customers = [];
@@ -87,13 +88,13 @@ async function loadSettings() {
 async function loadCustomersAndServices() {
   try {
     const canViewCustomers = isAdmin() || hasPermission('canViewCustomers');
-    const [customersSnap, servicesSnap] = await Promise.all([
+    const [visibleCustomers, servicesSnap] = await Promise.all([
       canViewCustomers
-        ? getDocs(query(collection(db, 'customers'), where('uid', '>', '')))
+        ? getVisibleCustomers(db)
         : Promise.resolve(null),
       getDocs(collection(db, 'services')),
     ]);
-    customers = customersSnap?.docs.map(doc => ({ id: doc.id, ...doc.data() })) || [];
+    customers = visibleCustomers || [];
     services = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
     console.error('Error loading customers/services:', error);

@@ -17,6 +17,7 @@ import {
 import {
   initPermissions, isAdmin, isAccountant, hasPermission,
 } from '../permissions.js';
+import { getVisibleCustomers } from '../customer-data.js';
 
 let transactions = [];
 let customers = [];
@@ -203,8 +204,7 @@ function initSidebar() {
 // =============================================================
 async function loadCustomers() {
   try {
-    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
-    customers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    customers = await getVisibleCustomers(db);
     populateCustomerSelect();
   } catch (error) {
     console.error('Error loading customers:', error);

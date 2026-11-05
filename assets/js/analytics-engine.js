@@ -8,6 +8,7 @@
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { computeFinancialSummary, formatCurrency, formatDate } from './accounting.js';
+import { getVisibleCustomers } from './customer-data.js';
 
 // =============================================================
 // 1. معدل النمو
@@ -408,7 +409,7 @@ export async function computeAnalyticsSummary(dateFrom, dateTo) {
     ]),
     Promise.all([
       getDocs(collection(db, 'inquiries')),
-      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
+      getVisibleCustomers(db),
       getDocs(collection(db, 'orders')),
       getDocs(collection(db, 'services')),
       getDocs(collection(db, 'expenses')),
@@ -429,7 +430,7 @@ export async function computeAnalyticsSummary(dateFrom, dateTo) {
   };
 
   const inquiries = inquiriesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const customers = customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const customers = customersSnap;
   const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const services = servicesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const expenses = expensesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
