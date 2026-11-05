@@ -19,7 +19,6 @@ import {
 } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
 import { isAdmin, hasPermission, getCurrentUid, getUserData } from '../permissions.js';
-import { getVisibleCustomers } from '../customer-data.js';
 
 let orders = [];
 let editingId = null;
@@ -79,13 +78,13 @@ initPage({
 // =============================================================
 async function loadSelectOptions() {
   try {
-    const [visibleCustomers, servicesSnap, employeesSnap] = await Promise.all([
-      getVisibleCustomers(db),
+    const [customersSnap, servicesSnap, employeesSnap] = await Promise.all([
+      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
       getDocs(collection(db, 'services')),
       getDocs(query(collection(db, 'employees'), where('status', '==', 'نشط'))),
     ]);
 
-    customersList = visibleCustomers;
+    customersList = customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     servicesList = servicesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     employeesList = employeesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 

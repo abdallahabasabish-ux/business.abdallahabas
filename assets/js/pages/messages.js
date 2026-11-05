@@ -12,7 +12,6 @@ import { initDynamicSidebar } from '../sidebar.js';
 import { getCurrentUid, getUserData, isAdmin } from '../permissions.js';
 import { log } from '../activity-log-helper.js';
 import { createNotification, NotificationTemplates } from '../notification-helper.js';
-import { getVisibleCustomers } from '../customer-data.js';
 
 let conversations = [];
 let currentConvId = null;
@@ -45,7 +44,8 @@ initPage({
 
 async function loadCustomers() {
   try {
-    customers = await getVisibleCustomers(db);
+    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
+    customers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const select = document.getElementById('newConvCustomer');
     if (select) {
       select.innerHTML = '<option value="">اختر عميل...</option>';

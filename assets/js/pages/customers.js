@@ -15,7 +15,6 @@ import {
   where,
   Timestamp
 } from 'firebase/firestore';
-import { listenToVisibleCustomers } from '../customer-data.js';
 
 // =============================================================
 // 1.  المتغيرات العامة
@@ -198,17 +197,24 @@ function listenToOrdersAndPayments() {
 function listenToCustomers() {
   if (customersListener) customersListener();
 
-  customersListener = listenToVisibleCustomers(db, (visibleCustomers) => {
-      customers = visibleCustomers.sort((a, b) => {
+  customersListener = onSnapshot(
+    query(collection(db, 'customers'), where('uid', '>', '')),
+    (snapshot) => {
+      customers = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data()
+      })).sort((a, b) => {
         const aDate = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
         const bDate = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
         return bDate - aDate;
       });
       applyFiltersAndRender();
-    }, (error) => {
+    },
+    (error) => {
       console.error('Error listening to customers:', error);
       showToast('حدث خطأ في تحميل العملاء', 'error');
-    });
+    }
+  );
 }
 
 // =============================================================
@@ -391,7 +397,6 @@ async function saveCustomer() {
     city: document.getElementById('city').value.trim(),
     address: document.getElementById('address').value.trim(),
     notes: document.getElementById('notes').value.trim(),
-    recordSource: 'admin',
     updatedAt: new Date().toISOString()
   };
 

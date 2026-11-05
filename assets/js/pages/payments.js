@@ -23,7 +23,6 @@ import {
 } from '../permissions.js';
 import { log } from '../activity-log-helper.js';
 import { createNotification } from '../notification-helper.js';
-import { getVisibleCustomers } from '../customer-data.js';
 
 let payments = [];
 let customersList = [];
@@ -55,7 +54,8 @@ initPage({
 // =============================================================
 async function loadCustomers() {
   try {
-    customersList = await getVisibleCustomers(db);
+    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
+    customersList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     populateCustomerSelect();
   } catch (error) {
     console.error('Error loading customers:', error);
