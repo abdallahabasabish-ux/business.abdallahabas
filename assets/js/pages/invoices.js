@@ -18,6 +18,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { initPermissions, isAdmin, isAccountant, hasPermission } from '../permissions.js';
+import { customersVisibleToStaffQuery } from '../customer-queries.js';
 
 let invoices = [];
 let customers = [];
@@ -89,7 +90,7 @@ async function loadCustomersAndServices() {
     const canViewCustomers = isAdmin() || hasPermission('canViewCustomers');
     const [customersSnap, servicesSnap] = await Promise.all([
       canViewCustomers
-        ? getDocs(query(collection(db, 'customers'), where('uid', '>', '')))
+        ? getDocs(customersVisibleToStaffQuery())
         : Promise.resolve(null),
       getDocs(collection(db, 'services')),
     ]);

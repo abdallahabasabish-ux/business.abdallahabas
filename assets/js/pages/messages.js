@@ -10,6 +10,7 @@ import {
 import { initPage, escapeHtml, showToast } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
 import { getCurrentUid, getUserData, isAdmin } from '../permissions.js';
+import { customersVisibleToStaffQuery } from '../customer-queries.js';
 import { log } from '../activity-log-helper.js';
 import { createNotification, NotificationTemplates } from '../notification-helper.js';
 
@@ -44,7 +45,7 @@ initPage({
 
 async function loadCustomers() {
   try {
-    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
+    const snap = await getDocs(customersVisibleToStaffQuery());
     customers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const select = document.getElementById('newConvCustomer');
     if (select) {

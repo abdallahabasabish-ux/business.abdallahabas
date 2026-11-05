@@ -15,6 +15,7 @@ import {
   where,
   Timestamp
 } from 'firebase/firestore';
+import { customersVisibleToStaffQuery } from '../customer-queries.js';
 
 // =============================================================
 // 1.  المتغيرات العامة
@@ -198,7 +199,7 @@ function listenToCustomers() {
   if (customersListener) customersListener();
 
   customersListener = onSnapshot(
-    query(collection(db, 'customers'), where('uid', '>', '')),
+    customersVisibleToStaffQuery(),
     (snapshot) => {
       customers = snapshot.docs.map((doc) => ({
         id: doc.id,
@@ -413,6 +414,7 @@ async function saveCustomer() {
       data.createdAt = new Date().toISOString();
       data.totalPaid = 0;
       data.balance = 0;
+      data.registrationSource = 'admin';
       await addDoc(collection(db, 'customers'), data);
       showToast('تم إضافة العميل بنجاح', 'success');
     }

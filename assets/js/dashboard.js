@@ -20,6 +20,7 @@ import { initDynamicSidebar } from './sidebar.js';
 import {
   computeFinancialSummary, formatCurrency, formatDate, escapeHtml,
 } from './accounting.js';
+import { customersVisibleToStaffQuery } from './customer-queries.js';
 
 // متغيرات عامة
 let customersCount = 0;
@@ -149,7 +150,7 @@ async function loadDashboardData() {
     updateStats(summary);
 
     // جلب العملاء والطلبات للجداول
-    const customersSnap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
+    const customersSnap = await getDocs(customersVisibleToStaffQuery());
     customersCount = customersSnap.size;
     recentCustomers = sortNewestCustomers(customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }))).slice(0, 5);
 
@@ -384,7 +385,7 @@ function updateCharts(ordersData) {
 // الاستماع للتحديثات الفورية
 // =============================================================
 function listenToRealtimeUpdates() {
-  onSnapshot(query(collection(db, 'customers'), where('uid', '>', '')), (snapshot) => {
+  onSnapshot(customersVisibleToStaffQuery(), (snapshot) => {
     customersCount = snapshot.size;
     const el = document.getElementById('statCustomers');
     if (el) el.textContent = customersCount;
@@ -401,7 +402,7 @@ function listenToRealtimeUpdates() {
     updateCharts(allOrders);
   }, (e) => console.warn(e));
 
-  onSnapshot(query(collection(db, 'customers'), where('uid', '>', '')), (snapshot) => {
+  onSnapshot(customersVisibleToStaffQuery(), (snapshot) => {
     recentCustomers = sortNewestCustomers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))).slice(0, 5);
     updateRecentCustomers();
   }, (e) => console.warn(e));

@@ -23,6 +23,7 @@ import {
 } from '../permissions.js';
 import { log } from '../activity-log-helper.js';
 import { createNotification } from '../notification-helper.js';
+import { customersVisibleToStaffQuery } from '../customer-queries.js';
 
 let payments = [];
 let customersList = [];
@@ -54,7 +55,7 @@ initPage({
 // =============================================================
 async function loadCustomers() {
   try {
-    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
+    const snap = await getDocs(customersVisibleToStaffQuery());
     customersList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     populateCustomerSelect();
   } catch (error) {

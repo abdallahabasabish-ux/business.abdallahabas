@@ -17,6 +17,7 @@ import {
 import {
   initPermissions, isAdmin, isAccountant, hasPermission,
 } from '../permissions.js';
+import { customersVisibleToStaffQuery } from '../customer-queries.js';
 
 let transactions = [];
 let customers = [];
@@ -203,7 +204,7 @@ function initSidebar() {
 // =============================================================
 async function loadCustomers() {
   try {
-    const snap = await getDocs(query(collection(db, 'customers'), where('uid', '>', '')));
+    const snap = await getDocs(customersVisibleToStaffQuery());
     customers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     populateCustomerSelect();
   } catch (error) {

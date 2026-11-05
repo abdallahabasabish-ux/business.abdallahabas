@@ -19,6 +19,7 @@ import {
 } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
 import { isAdmin, hasPermission, getCurrentUid, getUserData } from '../permissions.js';
+import { customersVisibleToStaffQuery } from '../customer-queries.js';
 
 let orders = [];
 let editingId = null;
@@ -79,7 +80,7 @@ initPage({
 async function loadSelectOptions() {
   try {
     const [customersSnap, servicesSnap, employeesSnap] = await Promise.all([
-      getDocs(query(collection(db, 'customers'), where('uid', '>', ''))),
+      getDocs(customersVisibleToStaffQuery()),
       getDocs(collection(db, 'services')),
       getDocs(query(collection(db, 'employees'), where('status', '==', 'نشط'))),
     ]);
