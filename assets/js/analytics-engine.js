@@ -433,7 +433,9 @@ export async function computeAnalyticsSummary(dateFrom, dateTo) {
   const customers = customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const services = servicesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const expenses = expensesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const expenses = expensesSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((expense) => !expense.status || expense.status === 'approved');
   const ledgerEntries = ledgerSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
   // قمع التحويل

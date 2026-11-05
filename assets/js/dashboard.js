@@ -18,9 +18,10 @@ import {
 } from './permissions.js';
 import { initDynamicSidebar } from './sidebar.js';
 import {
-  computeFinancialSummary, formatCurrency, formatDate, escapeHtml,
+  formatCurrency, formatDate, escapeHtml,
 } from './accounting.js';
 import { customersVisibleToStaffQuery } from './customer-queries.js';
+import { FinanceService } from './core/business-services.js';
 
 // متغيرات عامة
 let customersCount = 0;
@@ -144,7 +145,7 @@ function initSidebar() {
 async function loadDashboardData() {
   try {
     // جلب الملخص المالي من accounting.js
-    const summary = await computeFinancialSummary();
+    const summary = await FinanceService.summary();
 
     // تحديث البطاقات الإحصائية بالأرقام الدقيقة
     updateStats(summary);

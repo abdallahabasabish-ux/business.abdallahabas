@@ -8,15 +8,10 @@
 // - لا يسمح بدور مدير/موظف (العملاء فقط)
 // =============================================================
 
-import { auth, db } from './firebase-config.js';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
-  onAuthStateChanged,
-  updateProfile,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { FirebaseInit, AuthService } from './core/app-core.js';
+import { routeByRole } from './core/portal-guard.js';
+
+const { auth } = FirebaseInit;
 
 // =============================================================
 // 1. دوال مساعدة
@@ -109,7 +104,7 @@ document.getElementById('portalLoginForm')?.addEventListener('submit', async (e)
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>جاري...';
 
   try {
-    await signInWithEmailAndPassword(auth, email, password);
+    await AuthService.signIn(email, password);
     // onAuthStateChanged سيتولى التوجيه
   } catch (error) {
     let msg = 'حدث خطأ، تحقق من البيانات.';
@@ -170,39 +165,10 @@ document.getElementById('portalRegisterForm')?.addEventListener('submit', async 
 
   try {
     // 1. إنشاء حساب Firebase Auth
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    // 2. تحديث الاسم المعروض
-    if (name) {
-      await updateProfile(user, { displayName: name });
-    }
-
-    // 3. إنشاء وثيقة العميل في customers (مع uid للربط)
-    // القواعد تسمح بإنشاء customer إذا uid == currentUid
-    await setDoc(doc(db, 'customers', user.uid), {
-      uid: user.uid,
-      name: name,
-      email: email,
-      phone: phone,
-      company: '',
-      country: '',
-      city: '',
-      address: '',
-      notes: '',
-      totalPaid: 0,
-      balance: 0,
-      portalStatus: 'active',
-      registrationSource: 'portal',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    // ملاحظة: نستخدم user.uid كمعرّف المستند في customers
-    // هذا يسهّل الربط المباشر uid ↔ customerId
+    await AuthService.registerClient({ email, password, name, phone });
 
     showToast('تم إنشاء حسابك بنجاح! مرحباً بك.', 'success');
-    window.location.replace('portal-dashboard.html');
+    window.location.replace(await routeByRole(auth.currentUser));
   } catch (error) {
     console.error('Portal registration error:', error);
     let msg = 'حدث خطأ أثناء التسجيل.';
@@ -243,7 +209,7 @@ document.getElementById('forgotPasswordLink')?.addEventListener('click', async (
 
   if (email) {
     try {
-      await sendPasswordResetEmail(auth, email);
+      await AuthService.sendPasswordReset(email);
       showToast('تم إرسال رابط استعادة كلمة المرور إلى بريدك.', 'success');
     } catch (error) {
       let msg = 'حدث خطأ.';
@@ -256,31 +222,15 @@ document.getElementById('forgotPasswordLink')?.addEventListener('click', async (
 // =============================================================
 // 7. مراقبة حالة المصادقة — توجيه تلقائي
 // =============================================================
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) return; // لا توجيه إذا غير مسجّل
 
   // التحقق: هل المستخدم عميل أم موظف؟
   // إن كان موظفًا (له وثيقة في users)، وجّه إلى لوحة الإدارة
   // إن كان عميلًا (له وثيقة في customers بـ uid)، وجّه إلى بوابة العميل
   try {
-    const userDocSnap = await getDoc(doc(db, 'users', user.uid));
-    if (userDocSnap.exists() && userDocSnap.data().role) {
-      // موظف/مدير — وجّه إلى لوحة الإدارة
-      window.location.href = 'dashboard.html';
-      return;
-    }
-
-    // تحقق من وجود وثيقة العميل
-    const customerDocSnap = await getDoc(doc(db, 'customers', user.uid));
-    if (customerDocSnap.exists()) {
-      // عميل — وجّه إلى بوابة العميل
-      window.location.href = 'portal-dashboard.html';
-      return;
-    }
-
-    // المستخدم موجود في Auth لكن ليس له وثيقة في أي مكان
-    // يمكن أن يكون مستخدمًا قديمًا أو حسابًا غير مكتمل
-    // أبقِه في صفحة الدخول
+    const destination = await routeByRole(user);
+    if (destination !== '/login.html') window.location.replace(destination);
   } catch (error) {
     console.warn('Could not determine user type:', error);
   }

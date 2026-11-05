@@ -8,10 +8,8 @@
 // - زر طلب خدمة جديدة
 // =============================================================
 
-import { auth, db } from './firebase-config.js';
-import {
-  onAuthStateChanged, signOut,
-} from 'firebase/auth';
+import { FirebaseInit, AuthService } from './core/app-core.js';
+const { auth, db } = FirebaseInit;
 import {
   collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
@@ -77,7 +75,7 @@ function statusBadge(status) {
 // =============================================================
 let currentCustomerUid = null;
 
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) {
     window.location.href = 'portal-login.html';
     return;
@@ -101,7 +99,7 @@ onAuthStateChanged(auth, async (user) => {
   document.getElementById('portalLogoutBtn')?.addEventListener('click', async (e) => {
     e.preventDefault();
     try {
-      await signOut(auth);
+      await AuthService.signOut();
       window.location.href = 'portal-login.html';
     } catch (err) {
       showToast('تعذّر تسجيل الخروج', 'error');

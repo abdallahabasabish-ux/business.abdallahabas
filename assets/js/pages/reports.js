@@ -6,9 +6,9 @@ import { initPage, formatCurrency, formatDate, escapeHtml, showToast } from '../
 import { initDynamicSidebar } from '../sidebar.js';
 import { hasPermission } from '../permissions.js';
 import {
-  computeAnalyticsSummary, formatGrowthBadge,
+  formatGrowthBadge,
 } from '../analytics-engine.js';
-import { computeFinancialSummary } from '../accounting.js';
+import { FinanceService } from '../core/business-services.js';
 
 const state = {
   currentFilter: '30',
@@ -103,7 +103,7 @@ async function loadReports() {
 
   try {
     // استخدام analytics-engine للملخص
-    const summary = await computeAnalyticsSummary(range.from, range.to);
+    const summary = await FinanceService.analytics(range.from, range.to);
 
     updateStatsCards(summary);
     updateGrowthSection(summary);

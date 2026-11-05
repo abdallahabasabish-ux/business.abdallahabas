@@ -100,7 +100,8 @@ export async function computeFinancialSummary(dateFrom, dateTo) {
   // فلترة بالمدى الزمني
   const orders = filterByDate(data.orders, 'createdAt', from, to);
   const payments = filterByDate(data.payments, 'paymentDate', from, to);
-  const expenses = filterByDate(data.expenses, 'date', from, to);
+  const expenses = filterByDate(data.expenses, 'date', from, to)
+    .filter((expense) => !expense.status || expense.status === 'approved');
   const treasuryTx = filterByDate(data.treasury, 'date', from, to);
   const ledgerEntries = filterByDate(data.employeeLedger, 'createdAt', from, to);
 

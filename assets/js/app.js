@@ -1,31 +1,17 @@
-import { onAuthStateChangedCallback } from './auth.js';
-import { db } from './firebase-config.js';
-import { doc, getDoc } from 'firebase/firestore';
+import { AuthService } from './core/app-core.js';
+import { routeByRole } from './core/portal-guard.js';
 
 const currentPage = window.location.pathname.split('/').pop() || 'index.html';
 
 if (currentPage === 'index.html') {
-    onAuthStateChangedCallback(async (user) => {
+    AuthService.onStateChanged(async (user) => {
         if (!user) {
             window.location.replace('login.html');
             return;
         }
 
         try {
-            const userSnapshot = await getDoc(doc(db, 'users', user.uid));
-            if (userSnapshot.exists()) {
-                const role = userSnapshot.data().role;
-                const destination = ['مشرف', 'موظف'].includes(role)
-                    ? 'employee-dashboard.html'
-                    : 'dashboard.html';
-                window.location.replace(destination);
-                return;
-            }
-
-            const customerSnapshot = await getDoc(doc(db, 'customers', user.uid));
-            window.location.replace(
-                customerSnapshot.exists() ? 'portal-dashboard.html' : 'login.html'
-            );
+            window.location.replace(await routeByRole(user));
         } catch (error) {
             console.error('Could not route authenticated user:', error);
             window.location.replace('login.html');

@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { initPage, formatDate, escapeHtml, showToast } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
-import { requireAccountant } from '../permissions.js';
+import { getCurrentUid, requireAccountant } from '../permissions.js';
 import { EXPENSE_CATEGORIES, formatCurrency } from '../accounting.js';
 
 let expenses = [];
@@ -124,13 +124,17 @@ function renderTable(list) {
       <tr>
         <td>${i + 1}</td>
         <td>${formatDate(exp.date)}</td>
-        <td><strong>${escapeHtml(exp.description || '')}</strong></td>
+        <td>
+          <strong>${escapeHtml(exp.description || '')}</strong>
+          ${exp.status === 'pending' ? '<span class="badge bg-warning text-dark ms-1">بانتظار الاعتماد</span>' : ''}
+        </td>
         <td>${getCategoryBadge(exp.category)}</td>
         <td class="fw-bold text-danger">${formatCurrency(exp.amount)}</td>
         <td>${escapeHtml(exp.paymentMethod || '-')}</td>
         <td>${exp.orderId ? `<a href="orders.html" class="text-primary">مرتبط</a>` : '-'}</td>
         <td>${escapeHtml(exp.notes || '')}</td>
         <td>
+          ${exp.status === 'pending' ? `<button class="btn btn-sm btn-outline-success approve-expense-btn" data-id="${exp.id}" title="اعتماد المصروف"><i class="fas fa-check"></i></button>` : ''}
           <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${exp.id}"><i class="fas fa-edit"></i></button>
           <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${exp.id}"><i class="fas fa-trash"></i></button>
         </td>
@@ -140,12 +144,14 @@ function renderTable(list) {
   tbody.innerHTML = html;
   tbody.querySelectorAll('.edit-btn').forEach((b) => b.addEventListener('click', () => openEditModal(b.dataset.id)));
   tbody.querySelectorAll('.delete-btn').forEach((b) => b.addEventListener('click', () => confirmDelete(b.dataset.id)));
+  tbody.querySelectorAll('.approve-expense-btn').forEach((b) => b.addEventListener('click', () => approveExpense(b.dataset.id)));
 }
 
 function updateStats() {
-  const total = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const approvedExpenses = expenses.filter((expense) => !expense.status || expense.status === 'approved');
+  const total = approvedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const now = new Date();
-  const thisMonth = expenses.filter((e) => {
+  const thisMonth = approvedExpenses.filter((e) => {
     const d = e.date;
     if (!d) return false;
     const date = d instanceof Date ? d : new Date(d);
@@ -154,8 +160,8 @@ function updateStats() {
 
   document.getElementById('statTotal').textContent = formatCurrency(total);
   document.getElementById('statThisMonth').textContent = formatCurrency(thisMonth);
-  document.getElementById('statCount').textContent = expenses.length;
-  document.getElementById('statAvg').textContent = formatCurrency(expenses.length > 0 ? total / expenses.length : 0);
+  document.getElementById('statCount').textContent = approvedExpenses.length;
+  document.getElementById('statAvg').textContent = formatCurrency(approvedExpenses.length > 0 ? total / approvedExpenses.length : 0);
 }
 
 function openAddModal() {
@@ -202,6 +208,8 @@ async function saveExpense() {
     paymentMethod: document.getElementById('expPaymentMethod').value,
     orderId: document.getElementById('expOrder').value || null,
     notes: document.getElementById('expNotes').value.trim(),
+    status: 'approved',
+    approvedBy: getCurrentUid(),
     updatedAt: new Date().toISOString(),
   };
 
@@ -212,6 +220,11 @@ async function saveExpense() {
   try {
     const id = document.getElementById('expenseId').value;
     if (id) {
+      const currentExpense = expenses.find((expense) => expense.id === id);
+      if (currentExpense?.status === 'pending') {
+        data.status = 'pending';
+        delete data.approvedBy;
+      }
       await updateDoc(doc(db, 'expenses', id), data);
       showToast('تم تحديث المصروف', 'success');
     } else {
@@ -227,6 +240,24 @@ async function saveExpense() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-save me-2"></i>حفظ';
+  }
+}
+
+async function approveExpense(id) {
+  const expense = expenses.find((item) => item.id === id);
+  if (!expense || expense.status !== 'pending') return;
+
+  try {
+    await updateDoc(doc(db, 'expenses', id), {
+      status: 'approved',
+      approvedBy: getCurrentUid(),
+      approvedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    showToast('تم اعتماد المصروف', 'success');
+  } catch (error) {
+    console.error('Error approving expense:', error);
+    showToast('تعذّر اعتماد المصروف', 'error');
   }
 }
 

@@ -1,113 +1,140 @@
-// ============================================================
-// storage.rules — قواعد أمان Firebase Storage
-// ============================================================
-// لحماية الملفات المرفوعة: إثباتات الدفع، مرفقات الطلبات،
-// مرفقات المهام، ملفات المحادثات
-//
-// المبدأ: المصادقة إلزامية + قيود الحجم + تقييد الأنواع
-// ============================================================
-
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-
-    // التحقق من تسجيل الدخول
-    function isSignedIn() {
+    function signedIn() {
       return request.auth != null;
     }
-    function currentUid() {
-      return request.auth.uid;
+
+    function role() {
+      return signedIn() ? request.auth.token.get('role', '') : '';
     }
 
-    // الحد الأقصى لحجم الملف (5 ميجابايت للإثباتات، 10 ميجابايت للمرفقات)
-    function isReceiptSize() {
-      return request.resource.size < 5 * 1024 * 1024;
-    }
-    function isAttachmentSize() {
-      return request.resource.size < 10 * 1024 * 1024;
+    function userProfileRole() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get('role', '');
     }
 
-    // أنواع الملفات المسموح بها للإثباتات
-    function isReceiptType() {
-      return request.resource.contentType.matches('image/.*')
-          || request.resource.contentType == 'application/pdf';
+    function isAdmin() {
+      return signedIn() && (
+        role() == 'admin'
+        || request.auth.token.get('admin', false) == true
+        || (firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && userProfileRole() in ['admin', 'مدير'])
+      );
     }
 
-    // أنواع الملفات المسموح بها للمرفقات
-    function isAttachmentType() {
-      return request.resource.contentType.matches('image/.*')
+    function isAccountant() {
+      return signedIn() && (
+        role() == 'accountant'
+        || (firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && userProfileRole() == 'محاسب')
+      );
+    }
+
+    function isEmployee() {
+      return signedIn() && (
+        role() == 'employee'
+        || (firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && userProfileRole() in ['مشرف', 'موظف'])
+      );
+    }
+
+    function isClient() {
+      return signedIn() && (
+        role() == 'client'
+        || firestore.exists(/databases/(default)/documents/customers/$(request.auth.uid))
+      );
+    }
+
+    function validImageOrPdf(maxBytes) {
+      return request.resource != null
+        && request.resource.size <= maxBytes
+        && (
+          request.resource.contentType.matches('image/(jpeg|png|gif|webp)')
           || request.resource.contentType == 'application/pdf'
-          || request.resource.contentType.matches('text/.*')
+        );
+    }
+
+    function validDocument(maxBytes) {
+      return request.resource != null
+        && request.resource.size <= maxBytes
+        && (
+          request.resource.contentType.matches('image/(jpeg|png|gif|webp)')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'text/plain'
           || request.resource.contentType == 'application/zip'
-          || request.resource.contentType == 'application/msword'
-          || request.resource.contentType.matches('application/vnd\\.openxmlformats.*');
+          || request.resource.contentType.matches('application/vnd\\.openxmlformats.*')
+        );
     }
 
-    // ============================================================
-    // إثباتات الدفع: receipts/{customerUid}/{fileName}
-    // ============================================================
-    // العميل يرفع إثباته بنفسه (المسار يتضمّن uid)
-    // المدير/المحاسب يقرأ الإثباتات
-    // ============================================================
+    function orderData(orderId) {
+      return firestore.get(/databases/(default)/documents/orders/$(orderId)).data;
+    }
+
+    function taskData(taskId) {
+      return firestore.get(/databases/(default)/documents/tasks/$(taskId)).data;
+    }
+
+    function conversationData(conversationId) {
+      return firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data;
+    }
+
     match /receipts/{customerUid}/{fileName=**} {
-      allow read: if isSignedIn()
-        && (customerUid == currentUid()
-            || exists(/databases/$(database)/documents/users/$(currentUid())));
-      // ملاحظة: التحقق من دور المحاسب/المدير يتطلب Firestore get
-      // لكن في Storage rules لا يمكن الوصول لـ Firestore مباشرة
-      // الحل البديل: السماح بالقراءة لأي مستخدم مسجّل،
-      // وسيتم تقييد العرض في الواجهة حسب الدور.
-      // هذا مقبول لأن الإثبات يحتوي بيانات دفع فقط (ليست سرية)
-
-      allow write: if isSignedIn()
-        && customerUid == currentUid()
-        && isReceiptSize()
-        && isReceiptType();
+      allow read: if signedIn()
+        && (customerUid == request.auth.uid || isAdmin() || isAccountant());
+      allow create, update: if isClient()
+        && customerUid == request.auth.uid
+        && validImageOrPdf(5 * 1024 * 1024);
+      allow delete: if isAdmin() || customerUid == request.auth.uid;
     }
 
-    // ============================================================
-    // مرفقات الطلبات: order-attachments/{orderId}/{fileName}
-    // ============================================================
     match /order-attachments/{orderId}/{fileName=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn()
-        && isAttachmentSize()
-        && isAttachmentType();
+      allow read: if signedIn() && (
+        isAdmin()
+        || isAccountant()
+        || (isClient() && orderData(orderId).get('customerUid', '') == request.auth.uid)
+        || (isClient() && orderData(orderId).get('customerId', '') == request.auth.uid)
+        || (isEmployee() && orderData(orderId).get('assignedEmployeeIds', []).hasAny([request.auth.uid]))
+      );
+      allow create, update: if validDocument(10 * 1024 * 1024)
+        && (isAdmin()
+          || (isEmployee()
+            && orderData(orderId).get('assignedEmployeeIds', []).hasAny([request.auth.uid])));
+      allow delete: if isAdmin();
     }
 
-    // ============================================================
-    // مرفقات المهام: task-attachments/{taskId}/{fileName}
-    // ============================================================
     match /task-attachments/{taskId}/{fileName=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn()
-        && isAttachmentSize()
-        && isAttachmentType();
+      allow read: if isAdmin()
+        || (isEmployee() && taskData(taskId).get('assignedEmployeeIds', []).hasAny([request.auth.uid]));
+      allow create, update: if validDocument(10 * 1024 * 1024)
+        && (isAdmin()
+          || (isEmployee()
+            && taskData(taskId).get('assignedEmployeeIds', []).hasAny([request.auth.uid])));
+      allow delete: if isAdmin();
     }
 
-    // ============================================================
-    // مرفقات المحادثات: message-attachments/{conversationId}/{fileName}
-    // ============================================================
     match /message-attachments/{conversationId}/{fileName=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn()
-        && isAttachmentSize()
-        && isAttachmentType();
+      allow read: if signedIn() && (
+        isAdmin()
+        || conversationData(conversationId).get('customerUid', '') == request.auth.uid
+        || conversationData(conversationId).get('employeeUid', '') == request.auth.uid
+      );
+      allow create, update: if signedIn()
+        && (isAdmin()
+          || conversationData(conversationId).get('customerUid', '') == request.auth.uid
+          || conversationData(conversationId).get('employeeUid', '') == request.auth.uid)
+        && validDocument(10 * 1024 * 1024);
+      allow delete: if isAdmin();
     }
 
-    // ============================================================
-    // شعار الشركة: company/{fileName} — مدير فقط
-    // ============================================================
     match /company/{fileName=**} {
-      allow read: if true; // شعار الشركة عام
-      allow write: if isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(currentUid()))
-        && get(/databases/$(database)/documents/users/$(currentUid())).data.role == 'مدير';
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if isAdmin();
     }
 
-    // ============================================================
-    // القاعدة الافتراضية: رفض
-    // ============================================================
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -11,9 +11,25 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      ".git/**",
+      "docs/**",
+      "scripts/**",
+      "**/service-account*.json",
+      "**/serviceAccountKey.json",
+      "firestore-debug.log",
+      "firebase-debug.log",
+      "ui-debug.log"
     ],
     "headers": [
+      {
+        "source": "**/*.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        ]
+      },
       {
         "source": "**/*.@(js|css)",
         "headers": [
@@ -22,6 +38,18 @@
       }
     ],
     "rewrites": [
+      {
+        "source": "/admin",
+        "destination": "/admin/index.html"
+      },
+      {
+        "source": "/employee",
+        "destination": "/employee/index.html"
+      },
+      {
+        "source": "/client",
+        "destination": "/client/index.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"

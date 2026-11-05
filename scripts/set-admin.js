@@ -73,8 +73,11 @@ async function setAdmin() {
     console.log(`✅ تم العثور على المستخدم. UID: ${userRecord.uid}`);
 
     // تعيين Custom Claim (admin)
-    await auth.setCustomUserClaims(userRecord.uid, { admin: true });
-    console.log('✅ تم تعيين custom claim: admin = true');
+    const claims = { ...(userRecord.customClaims || {}), role: 'admin', admin: true };
+    delete claims.employee;
+    delete claims.client;
+    await auth.setCustomUserClaims(userRecord.uid, claims);
+    console.log('✅ تم تعيين custom claims: role = admin');
 
     // إنشاء/تحديث وثيقة المستخدم في Firestore
     const userRef = db.collection('users').doc(userRecord.uid);

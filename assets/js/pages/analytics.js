@@ -6,9 +6,10 @@ import { initPage, escapeHtml, showToast } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
 import { hasPermission } from '../permissions.js';
 import {
-  computeAnalyticsSummary, formatGrowthBadge, getTrendLabel, getConfidenceLabel,
+  formatGrowthBadge, getTrendLabel, getConfidenceLabel,
 } from '../analytics-engine.js';
 import { formatCurrency } from '../accounting.js';
+import { FinanceService } from '../core/business-services.js';
 
 let currentPeriod = '30';
 let charts = {};
@@ -70,7 +71,7 @@ async function loadData(customFrom, customTo) {
       dateTo = now;
     }
 
-    const summary = await computeAnalyticsSummary(dateFrom, dateTo);
+    const summary = await FinanceService.analytics(dateFrom, dateTo);
 
     renderKPIs(summary);
     renderGrowthCharts(summary);
@@ -318,9 +319,7 @@ async function renderEmployeePerformance(s, dateFrom, dateTo) {
   const tbody = document.getElementById('employeePerformanceBody');
 
   try {
-    // استدعاء computeEmployeePerformance من analytics-engine.js
-    const { computeEmployeePerformance } = await import('../analytics-engine.js');
-    const employees = await computeEmployeePerformance(dateFrom, dateTo);
+    const employees = await FinanceService.employeePerformance(dateFrom, dateTo);
 
     if (employees.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">لا يوجد موظفون</td></tr>';

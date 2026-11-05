@@ -24,6 +24,8 @@ cd scripts
 npm install firebase-admin
 # نزّل service-account.json من Firebase Console
 node set-admin.js your@email.com
+node set-admin.js your@email.com
+node set-user-role.js employee@email.com employee
 ```
 
 ### 4. اختبار
@@ -32,6 +34,8 @@ node set-admin.js your@email.com
 - اختبر قائمة القبول في docs/TESTING_CHECKLIST.md
 
 ## الوثائق
+## الوثائق
+- docs/ARCHITECTURE_MIGRATION.md — هيكل البوابات وخطة الترحيل المرحلي
 - docs/BACKUP_PROCEDURE.md — النسخ الاحتياطي
 - docs/TESTING_CHECKLIST.md — قائمة الاختبار
 - docs/INTEGRATION_GUIDE.md — دمج التسجيل والإشعارات
@@ -48,7 +52,15 @@ activity-logs, payment-methods, settings
 portal-login, portal-dashboard, portal-orders, portal-payments
 
 ### لوحة الموظف
+### لوحة الموظف
 employee-dashboard
+
+## نقاط دخول البوابات
+- `/admin/` — بوابة الإدارة
+- `/employee/` — بوابة الموظف
+- `/client/` — بوابة العميل
+
+تعمل صفحات `.html` الحالية كواجهات توافق أثناء ترحيل الميزات. راجع `docs/ARCHITECTURE_MIGRATION.md` قبل إزالة أي صفحة قديمة.
 
 ## المجموعات (17)
 customers, employees, services, orders, payments, invoices,

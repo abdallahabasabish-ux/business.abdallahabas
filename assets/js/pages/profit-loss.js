@@ -6,8 +6,8 @@ import { db } from '../firebase-config.js';
 import { initPage, escapeHtml, showToast } from '../init.js';
 import { initDynamicSidebar } from '../sidebar.js';
 import { requireAccountant } from '../permissions.js';
+import { FinanceService } from '../core/business-services.js';
 import {
-  computeFinancialSummary, computeComparison,
   formatCurrency, formatPercent,
 } from '../accounting.js';
 
@@ -76,13 +76,13 @@ async function loadData() {
     }
 
     // الحصول على الملخص المالي
-    const summary = await computeFinancialSummary(dateFrom, dateTo);
+    const summary = await FinanceService.summary(dateFrom, dateTo);
 
     // الحصول على المقارنة (للفترة السابقة)
     let comparison = null;
     if (currentPeriod !== 'all' && currentPeriod !== 'custom') {
       const days = parseInt(currentPeriod);
-      comparison = await computeComparison(days);
+      comparison = await FinanceService.comparison(days);
     }
 
     renderSummary(summary, comparison);

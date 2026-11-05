@@ -1,16 +1,17 @@
-import { auth } from './firebase-config.js';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { FirebaseInit, AuthService } from './core/app-core.js';
+
+const { auth } = FirebaseInit;
 
 export function loginUser(email, password) {
-  return signInWithEmailAndPassword(auth, email, password);
+  return AuthService.signIn(email, password);
 }
 
 export function logoutUser() {
-  return signOut(auth);
+  return AuthService.signOut();
 }
 
 export function onAuthStateChangedCallback(callback) {
-  return onAuthStateChanged(auth, callback);
+  return AuthService.onStateChanged(callback);
 }
 
 export function getCurrentUser() {

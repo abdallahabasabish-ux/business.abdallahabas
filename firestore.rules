@@ -49,34 +49,61 @@ service cloud.firestore {
 
     // دور المستخدم الحالي
     function userRole() {
-      return userExists() ? userDoc().role : '';
+      return userExists() ? userDoc().get('role', '') : '';
+    }
+
+    function claimRole() {
+      return isSignedIn() ? request.auth.token.get('role', '') : '';
+    }
+
+    function isEnabled() {
+      return isSignedIn()
+        && (!userExists() || userDoc().get('disabled', false) == false);
     }
 
     // هل المستخدم مدير؟
     function isAdmin() {
-      return userExists() && userDoc().role == 'مدير';
+      return isEnabled() && (
+        claimRole() == 'admin'
+        || request.auth.token.get('admin', false) == true
+        || userRole() in ['admin', 'مدير']
+      );
     }
 
     // هل المستخدم محاسب أو مدير؟
     function isAccountant() {
-      return userExists()
-        && (userDoc().role == 'مدير' || userDoc().role == 'محاسب');
+      return isAdmin() || (isEnabled() && (
+        claimRole() == 'accountant'
+        || userRole() in ['accountant', 'محاسب']
+      ));
+    }
+
+    function isEmployee() {
+      return isEnabled() && (
+        claimRole() == 'employee'
+        || userRole() in ['employee', 'مشرف', 'موظف']
+      );
+    }
+
+    function isClient() {
+      return isEnabled() && (
+        claimRole() == 'client'
+        || exists(/databases/$(database)/documents/customers/$(currentUid()))
+      );
     }
 
     // هل المستخدم موظف نظامي (أي دور)؟
     function isStaff() {
-      return userExists()
-        && userDoc().role in ['مدير', 'محاسب', 'مشرف', 'موظف'];
+      return isAdmin() || isAccountant() || isEmployee();
     }
 
     // التحقق من صلاحية مخصّصة من خريطة permissions
     // المديرون يملكون كل الصلاحيات تلقائيًا
     function hasPermission(perm) {
-      return userExists()
+      return isEnabled() && userExists()
         && (
-          userDoc().role == 'مدير'
-          || (userDoc().permissions != null
-              && userDoc().permissions[perm] == true)
+          isAdmin()
+          || (userDoc().get('permissions', {}).get(perm, false) == true)
         );
     }
 
@@ -101,15 +128,14 @@ service cloud.firestore {
     match /users/{uid} {
 
       // القراءة: المستخدم يقرأ وثيقته، المدير يقرأ الكل
-      allow read: if isSignedIn()
-        && (uid == currentUid() || isAdmin());
+      allow read: if isEnabled() && (uid == currentUid() || isAdmin());
 
       // الإنشاء:
       // - مستخدم جديد يُنشئ وثيقته عند التسجيل (role=موظف فقط)
       // - المدير يُنشئ أي وثيقة
       allow create: if isSignedIn() && (
         (uid == currentUid()
-         && request.resource.data.role == 'موظف'
+         && request.resource.data.role in ['موظف', 'employee']
          && request.resource.data.email is string
          && request.resource.data.email != ''
          && (!('employeeId' in request.resource.data)
@@ -137,33 +163,33 @@ service cloud.firestore {
     match /customers/{customerId} {
 
       // القراءة: المدير، الموظف بصلاحية، العميل يقرأ وثيقته (ربط بـ uid)
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || hasPermission('canViewCustomers')
-        || (resource.data.uid == currentUid())
+        || (resource.data.get('uid', '') == currentUid())
       );
 
       // الإنشاء:
       // - المدير، الموظف بصلاحية canAddCustomers
       // - العميل يسجّل وثيقته بنفسه (uid = معرّفه)
-      allow create: if isSignedIn() && (
+      allow create: if isEnabled() && (
         isAdmin()
         || hasPermission('canAddCustomers')
-        || (request.resource.data.uid == currentUid())
+        || (request.resource.data.get('uid', '') == currentUid())
       );
 
       // التحديث:
       // - المدير، الموظف بصلاحية canEditCustomers
       // - العميل يحدّث بياناته لكن لا يغيّر الحقول المالية
       //   (totalPaid, balance — هذه يحدّثها المدير/المحاسب فقط)
-      allow update: if isSignedIn() && (
+      allow update: if isEnabled() && (
         isAdmin()
         || hasPermission('canEditCustomers')
         || (isAccountant()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'totalPaid', 'balance', 'updatedAt'
             ]))
-        || (resource.data.uid == currentUid()
+        || (resource.data.get('uid', '') == currentUid()
             && fieldsNotChanged(['totalPaid', 'balance', 'createdAt']))
       );
 
@@ -177,15 +203,15 @@ service cloud.firestore {
     match /employees/{employeeId} {
 
       // القراءة: المدير، الموظف بصلاحية، الموظف يقرأ وثيقته (ربط بـ uid)
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || hasPermission('canViewEmployees')
-        || (resource.data.uid == currentUid())
+        || (resource.data.get('uid', '') == currentUid())
       );
 
       // الموظف ينشئ ملفًا أوليًا محدودًا فقط؛ البيانات المالية للمدير.
       allow create: if isAdmin() || (
-        isSignedIn()
+        isEnabled()
         && employeeId == currentUid()
         && request.resource.data.uid == currentUid()
         && request.resource.data.email == request.auth.token.email
@@ -207,8 +233,8 @@ service cloud.firestore {
     // ============================================================
     match /services/{serviceId} {
 
-      // القراءة: أي مستخدم مسجّل (لعرضها في بوابة العملاء)
-      allow read: if isSignedIn();
+        // الخدمات متاحة للمستخدمين النشطين في البوابات.
+      allow read: if isAdmin() || isAccountant();
 
       // الكتابة: مدير فقط
       allow create, update, delete: if isAdmin();
@@ -220,35 +246,53 @@ service cloud.firestore {
     match /orders/{orderId} {
 
       // القراءة: المدير، الموظف بصلاحية، الموظف المعيّن، العميل (ربط بـ customerUid)
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || hasPermission('canViewOrders')
-        || (resource.data.assignedEmployeeIds != null
+        || (isEmployee()
+            && resource.data.get('assignedEmployeeIds', []) is list
             && resource.data.assignedEmployeeIds.hasAny([currentUid()]))
-        || (resource.data.employeeId != null
+        || (isEmployee()
+          && resource.data.employeeId != null
             && get(/databases/$(database)/documents/employees/$(resource.data.employeeId)).data.uid == currentUid())
-        || (resource.data.customerUid == currentUid())
-        || (resource.data.customerId == currentUid())
+        || (isClient() && resource.data.get('customerUid', '') == currentUid())
+        || (isClient() && resource.data.get('customerId', '') == currentUid())
       );
 
       // الإنشاء:
       // - المدير، الموظف بصلاحية canCreateOrders
       // - العميل ينشئ طلب خدمة (status=جديد فقط)
-      allow create: if isSignedIn() && (
+      allow create: if isEnabled() && (
         isAdmin()
         || hasPermission('canCreateOrders')
-        || (request.resource.data.customerUid == currentUid()
-            && request.resource.data.status == 'جديد')
+        || (isClient()
+          && request.resource.data.keys().hasOnly([
+            'orderNumber', 'customerUid', 'customerId', 'serviceId', 'description',
+            'price', 'discount', 'tax', 'total', 'paid', 'status', 'priority',
+            'notes', 'stages', 'completionRate', 'deadline', 'expectedDeliveryDate',
+            'createdAt', 'updatedAt', 'lifecycleStage', 'approvalStatus', 'source'
+          ])
+          && request.resource.data.get('customerUid', '') == currentUid()
+          && request.resource.data.get('customerId', '') == currentUid()
+          && request.resource.data.status == 'جديد'
+          && request.resource.data.get('approvalStatus', '') == 'pending'
+          && request.resource.data.get('source', '') == 'portal'
+          && request.resource.data.get('price', 0) == 0
+          && request.resource.data.get('discount', 0) == 0
+          && request.resource.data.get('tax', 0) == 0
+          && request.resource.data.get('total', 0) == 0
+          && request.resource.data.get('paid', 0) == 0)
       );
 
       // التحديث:
       // - المدير، الموظف بصلاحية canUpdateOrders
       // - الموظف المعيّن يحدّث التقدّم لكن لا يغيّر المبالغ
       // - العميل لا يحدّث بعد الإنشاء
-      allow update: if isSignedIn() && (
+      allow update: if isEnabled() && (
         isAdmin()
         || hasPermission('canUpdateOrders')
-        || (resource.data.assignedEmployeeIds != null
+        || (isEmployee()
+          && resource.data.get('assignedEmployeeIds', []) is list
             && resource.data.assignedEmployeeIds.hasAny([currentUid()])
             && fieldsNotChanged(['total', 'paid', 'price', 'customerId', 'employeeId']))
       );
@@ -268,29 +312,44 @@ service cloud.firestore {
     match /payments/{paymentId} {
 
       // القراءة: المدير، المحاسب، العميل (ربط بـ customerUid)
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || isAccountant()
         || hasPermission('canViewPayments')
-        || (resource.data.customerUid == currentUid())
+        || (isClient() && resource.data.get('customerUid', '') == currentUid())
       );
 
       // الإنشاء:
       // - المدير/المحاسب ينشئ دفعة بأي حالة
       // - العميل يرفع إثبات دفع (status=pending فقط، مبلغ موجب)
-      allow create: if isSignedIn() && (
+      allow create: if isEnabled() && (
         isAccountant()
-        || (request.resource.data.customerUid == currentUid()
+        || (isClient()
+            && request.resource.data.keys().hasOnly([
+              'customerUid', 'customerId', 'orderId', 'amount', 'method',
+              'paymentDate', 'notes', 'receiptUrl', 'status',
+              'verificationStatus', 'createdAt', 'updatedAt', 'source'
+            ])
+            && request.resource.data.get('customerUid', '') == currentUid()
+            && request.resource.data.get('customerId', '') == currentUid()
             && request.resource.data.status == 'pending'
+            && request.resource.data.get('verificationStatus', '') == 'pending'
+            && request.resource.data.get('source', '') == 'portal'
             && request.resource.data.amount is number
-            && request.resource.data.amount > 0)
+            && request.resource.data.amount > 0
+            && (request.resource.data.get('receiptUrl', null) == null
+              || request.resource.data.receiptUrl.matches('https://firebasestorage\\.googleapis\\.com/.*'))
+            && (request.resource.data.get('orderId', null) == null
+              || (exists(/databases/$(database)/documents/orders/$(request.resource.data.orderId))
+                && (get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.get('customerUid', '') == currentUid()
+                  || get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.get('customerId', '') == currentUid()))))
       );
 
       // التحديث:
       // - المدير/المحاسب يحدّث أي شيء (بما فيه status)
       // - لا أحد يعدّل دفعة معتمدة إلا مدير
       // - العميل لا يحدّث بعد الرفع
-      allow update: if isSignedIn() && (
+      allow update: if isEnabled() && (
         (isAccountant() && resource.data.status != 'approved')
         || isAdmin()
       );
@@ -303,7 +362,22 @@ service cloud.firestore {
     // 6.5 مجموعة expenses — المصروفات
     // ============================================================
     match /expenses/{expenseId} {
-      allow read, create, update: if isSignedIn() && isAccountant();
+      allow read: if isEnabled() && isAccountant();
+      allow create: if isEnabled() && (
+        isAccountant()
+        || (isEmployee()
+          && request.resource.data.get('status', '') == 'pending'
+          && request.resource.data.get('submittedBy', '') == currentUid()
+          && request.resource.data.get('createdBy', '') == currentUid()
+          && request.resource.data.get('amount', 0) is number
+          && request.resource.data.amount > 0
+          && request.resource.data.keys().hasOnly([
+            'description', 'amount', 'category', 'date', 'paymentMethod',
+            'orderId', 'notes', 'status', 'submittedBy', 'createdBy',
+            'createdAt', 'updatedAt'
+          ]))
+      );
+      allow update: if isEnabled() && isAccountant();
       allow delete: if isAdmin();
     }
 
@@ -312,15 +386,18 @@ service cloud.firestore {
     // ============================================================
     match /invoices/{invoiceId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || isAccountant()
         || hasPermission('canViewInvoices')
-        || (resource.data.customerUid == currentUid())
+        || (isClient() && (
+          resource.data.get('customerUid', '') == currentUid()
+          || resource.data.get('customerId', '') == currentUid()
+        ))
       );
 
-      allow create: if isSignedIn() && (isAdmin() || isAccountant());
-      allow update: if isSignedIn() && (isAdmin() || isAccountant());
+      allow create: if isEnabled() && (isAdmin() || isAccountant());
+      allow update: if isEnabled() && (isAdmin() || isAccountant());
       allow delete: if isAdmin();
     }
 
@@ -331,13 +408,13 @@ service cloud.firestore {
     // ============================================================
     match /treasury/{txId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin() || isAccountant() || hasPermission('canViewTreasury')
       );
 
       // الإنشاء: مدير/محاسب
       // للإيداعات المرتبطة بمدفوعات: التحقق من أن الدفعة معتمدة
-      allow create: if isSignedIn()
+      allow create: if isEnabled()
         && (isAdmin() || isAccountant())
         && (
           // إيداع غير مرتبط بدفعة (إيداع خارجي، سحب، تحويل)
@@ -358,7 +435,7 @@ service cloud.firestore {
     // 9. مجموعة settings — الإعدادات العامة
     // ============================================================
     match /settings/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin() || isAccountant();
       allow create, update, delete: if isAdmin();
     }
 
@@ -367,21 +444,23 @@ service cloud.firestore {
     // ============================================================
     match /tasks/{taskId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || hasPermission('canAssignTasks')
-        || (resource.data.assignedEmployeeIds != null
+        || (isEmployee()
+          && resource.data.get('assignedEmployeeIds', []) is list
             && resource.data.assignedEmployeeIds.hasAny([currentUid()]))
       );
 
-      allow create: if isSignedIn()
+      allow create: if isEnabled()
         && (isAdmin() || hasPermission('canAssignTasks'));
 
       // الموظف المعيّن يحدّث التقدّم لكن لا يغيّر التعويض أو التعيين
-      allow update: if isSignedIn() && (
+      allow update: if isEnabled() && (
         isAdmin()
         || hasPermission('canAssignTasks')
-        || (resource.data.assignedEmployeeIds != null
+        || (isEmployee()
+            && resource.data.get('assignedEmployeeIds', []) is list
             && resource.data.assignedEmployeeIds.hasAny([currentUid()])
             && fieldsNotChanged(['compensation', 'assignedEmployeeIds', 'assignedBy']))
       );
@@ -394,16 +473,21 @@ service cloud.firestore {
     // ============================================================
     match /inquiries/{inquiryId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || hasPermission('canViewInquiries')
       );
 
       // الإنشاء: أي مستخدم مسجّل (العملاء يرسلون استفسارات)
-      allow create: if isSignedIn()
-        && request.resource.data.status == 'جديد';
+      allow create: if isEnabled() && (
+        isAdmin()
+        || hasPermission('canEditInquiries')
+        || (isClient()
+          && request.resource.data.get('customerUid', '') == currentUid()
+          && request.resource.data.status == 'جديد')
+      );
 
-      allow update: if isSignedIn()
+      allow update: if isEnabled()
         && (isAdmin() || hasPermission('canEditInquiries'));
 
       allow delete: if isAdmin();
@@ -414,22 +498,29 @@ service cloud.firestore {
     // ============================================================
     match /conversations/{convId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
-        || (resource.data.customerUid == currentUid())
-        || (resource.data.employeeUid == currentUid())
+        || (isClient() && resource.data.get('customerUid', '') == currentUid())
+        || (isEmployee() && resource.data.get('employeeUid', '') == currentUid())
       );
 
-      allow create: if isSignedIn() && (
+      allow create: if isEnabled() && (
         isAdmin()
-        || request.resource.data.customerUid == currentUid()
+        || (isStaff()
+          && hasPermission('canViewInquiries')
+          && request.resource.data.get('employeeUid', '') == currentUid())
+        || (isClient()
+          && request.resource.data.get('customerUid', '') == currentUid())
       );
 
-      allow update: if isSignedIn() && (
-        isAdmin()
-        || resource.data.customerUid == currentUid()
-        || resource.data.employeeUid == currentUid()
-      );
+      allow update: if isEnabled()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lastMessage', 'lastMessageAt', 'lastSenderUid', 'updatedAt', 'status'
+        ]) && (
+          isAdmin()
+          || (isClient() && resource.data.get('customerUid', '') == currentUid())
+          || (isEmployee() && resource.data.get('employeeUid', '') == currentUid())
+        );
 
       allow delete: if isAdmin();
     }
@@ -437,31 +528,38 @@ service cloud.firestore {
     // ============================================================
     // 13. مجموعة messages — الرسائل (جديدة)
     // ============================================================
-    // تحسين: كل رسالة تتضمّن participants[] لتجنب get() إضافية
-    // ============================================================
     match /messages/{msgId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
-        || (resource.data.senderUid == currentUid())
-        || (resource.data.participants != null
-            && resource.data.participants.hasAny([currentUid()]))
+        || resource.data.get('senderUid', '') == currentUid()
+        || (resource.data.get('participants', []) is list
+          && resource.data.participants.hasAny([currentUid()]))
       );
 
-      // الإنشاء: المستخدم يرسل رسالة باسمه فقط
-      // participants يجب أن يتضمّن المرسِل
-      allow create: if isSignedIn()
-        && request.resource.data.senderUid == currentUid()
-        && request.resource.data.text is string
-        && request.resource.data.participants != null
-        && request.resource.data.participants.hasAny([currentUid()]);
+      allow create: if isEnabled()
+        && request.resource.data.get('conversationId', '') is string
+        && exists(/databases/$(database)/documents/conversations/$(request.resource.data.conversationId))
+        && request.resource.data.get('senderUid', '') == currentUid()
+        && request.resource.data.get('text', '') is string
+        && request.resource.data.get('participants', []) is list
+        && request.resource.data.participants.hasAny([currentUid()])
+        && (
+          isAdmin()
+          || get(/databases/$(database)/documents/conversations/$(request.resource.data.conversationId)).data.get('customerUid', '') == currentUid()
+          || get(/databases/$(database)/documents/conversations/$(request.resource.data.conversationId)).data.get('employeeUid', '') == currentUid()
+        )
+        && request.resource.data.participants.hasOnly([
+          get(/databases/$(database)/documents/conversations/$(request.resource.data.conversationId)).data.get('customerUid', ''),
+          get(/databases/$(database)/documents/conversations/$(request.resource.data.conversationId)).data.get('employeeUid', '')
+        ]);
 
       // يسمح للمشارك بتحديث علامة القراءة فقط؛ محتوى الرسالة يبقى ثابتًا.
-      allow update: if isSignedIn()
-        && resource.data.participants != null
+      allow update: if isEnabled()
+        && resource.data.get('participants', []) is list
         && resource.data.participants.hasAny([currentUid()])
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
-        && request.resource.data.readAt is string;
+        && request.resource.data.get('readAt', null) is string;
 
       allow delete: if false;
     }
@@ -472,20 +570,38 @@ service cloud.firestore {
     match /notifications/{notifId} {
 
       // المستخدم يقرأ إشعاراته فقط
-      allow read: if isSignedIn()
+      allow read: if isEnabled()
         && resource.data.userId == currentUid();
 
       // الإنشاء: المستخدم يُنشئ إشعاره (أو النظام — لكن بدون Cloud Functions
       // يُنشئها العميل باسم المستخدم المستلم)
-      allow create: if isSignedIn();
+      allow create: if isEnabled() && (
+        request.resource.data.get('userId', '') == currentUid()
+        || isAdmin()
+        || (isAccountant()
+          && request.resource.data.get('type', '') in ['payment_approved', 'payment_rejected']
+          && request.resource.data.get('relatedRecordId', '') is string
+          && exists(/databases/$(database)/documents/payments/$(request.resource.data.relatedRecordId))
+          && get(/databases/$(database)/documents/payments/$(request.resource.data.relatedRecordId)).data.get('customerUid', '') == request.resource.data.get('userId', ''))
+        || (hasPermission('canAssignTasks')
+          && request.resource.data.get('type', '') == 'task_assigned'
+          && request.resource.data.get('relatedRecordId', '') is string
+          && exists(/databases/$(database)/documents/tasks/$(request.resource.data.relatedRecordId))
+          && get(/databases/$(database)/documents/tasks/$(request.resource.data.relatedRecordId)).data.get('assignedEmployeeIds', []).hasAny([request.resource.data.get('userId', '')]))
+        || (request.resource.data.get('type', '') == 'new_message'
+          && request.resource.data.get('relatedRecordId', '') is string
+          && exists(/databases/$(database)/documents/conversations/$(request.resource.data.relatedRecordId))
+          && get(/databases/$(database)/documents/conversations/$(request.resource.data.relatedRecordId)).data.get('employeeUid', '') == currentUid()
+          && get(/databases/$(database)/documents/conversations/$(request.resource.data.relatedRecordId)).data.get('customerUid', '') == request.resource.data.get('userId', ''))
+      );
 
       // التحديث: المستخدم يحدّث إشعاره (مثلاً قراءة/غير مقروء)
       // لكن لا يغيّر المحتوى
-      allow update: if isSignedIn()
+      allow update: if isEnabled()
         && resource.data.userId == currentUid()
         && fieldsNotChanged(['title', 'body', 'type', 'userId']);
 
-      allow delete: if isSignedIn()
+      allow delete: if isEnabled()
         && resource.data.userId == currentUid();
     }
 
@@ -494,14 +610,14 @@ service cloud.firestore {
     // ============================================================
     match /employeeLedger/{entryId} {
 
-      allow read: if isSignedIn() && (
+      allow read: if isEnabled() && (
         isAdmin()
         || isAccountant()
         || (resource.data.employeeUid == currentUid())
       );
 
       // يمكن لمفوّض المهام تسجيل مستحق المهمة التي اعتمدها فقط.
-      allow create: if isSignedIn() && (
+      allow create: if isEnabled() && (
         isAdmin()
         || isAccountant()
         || (
@@ -536,7 +652,7 @@ service cloud.firestore {
 
       // الإنشاء: أي مستخدم مسجّل يُسجّل نشاطه باسمه فقط
       // (userId يجب أن يطابق المستخدم الحالي)
-      allow create: if isSignedIn()
+      allow create: if isEnabled()
         && request.resource.data.userId == currentUid()
         && request.resource.data.timestamp is string;
 
@@ -548,7 +664,7 @@ service cloud.firestore {
     // 17. مجموعة paymentMethods — طرق الدفع (جديدة)
     // ============================================================
     match /paymentMethods/{methodId} {
-      allow read: if isSignedIn();
+      allow read: if isEnabled();
       allow create, update, delete: if isAdmin();
     }
 
@@ -556,7 +672,7 @@ service cloud.firestore {
     // 18. مجموعة systemSettings — إعدادات النظام الديناميكية (جديدة)
     // ============================================================
     match /systemSettings/{settingId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 

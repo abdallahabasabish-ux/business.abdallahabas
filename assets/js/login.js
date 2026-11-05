@@ -8,28 +8,10 @@
 // - بدون وثيقة → dashboard.html (يُنشئ وثيقته)
 // =============================================================
 
-import { auth, db } from './firebase-config.js';
-import {
-  signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
-  onAuthStateChanged, updateProfile,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { FirebaseInit, AuthService } from './core/app-core.js';
+import { routeByRole } from './core/portal-guard.js';
 
-async function createPendingEmployeeProfile(user, displayName) {
-  await setDoc(doc(db, 'employees', user.uid), {
-    uid: user.uid,
-    email: user.email,
-    name: displayName || user.email,
-    position: 'بانتظار التحديد',
-    phone: '',
-    status: 'بانتظار التفعيل',
-    orderCount: 0,
-    completionRate: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
-}
+const { auth } = FirebaseInit;
 
 // =============================================================
 // دوال مساعدة (Toast)
@@ -117,7 +99,7 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>جاري...';
 
   try {
-    await signInWithEmailAndPassword(auth, email, password);
+    await AuthService.signIn(email, password);
     // onAuthStateChanged سيتولى التوجيه
   } catch (error) {
     let msg = 'حدث خطأ، تحقق من البيانات.';
@@ -166,27 +148,10 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>جاري...';
 
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    if (name) await updateProfile(user, { displayName: name });
-
-    await createPendingEmployeeProfile(user, name || user.email);
-
-    // إنشاء وثيقة المستخدم بدور موظف افتراضي
-    await setDoc(doc(db, 'users', user.uid), {
-      email: user.email,
-      displayName: name || user.email,
-      role: 'موظف',
-      disabled: false,
-      employeeId: user.uid,
-      permissions: {}, // المدير يحدّد الصلاحيات لاحقًا
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    await AuthService.registerEmployee({ email, password, name: name || email });
 
     showToast('تم إنشاء الحساب! سيتم توجيهك للوحة الموظف.', 'success');
-    window.location.replace('employee-dashboard.html');
+    window.location.replace(await routeByRole(auth.currentUser));
   } catch (error) {
     let msg = 'حدث خطأ أثناء التسجيل.';
     if (error.code === 'auth/email-already-in-use') msg = 'البريد الإلكتروني مستخدم بالفعل.';
@@ -204,28 +169,19 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
 // =============================================================
 // Google Sign-In
 // =============================================================
-const provider = new GoogleAuthProvider();
-
-async function handleGoogleSignIn() {
+async function handleGoogleSignIn(event) {
   try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    if (!userDoc.exists()) {
-      await createPendingEmployeeProfile(user, user.displayName || user.email);
-      await setDoc(doc(db, 'users', user.uid), {
-        email: user.email,
-        displayName: user.displayName || user.email,
-        role: 'موظف',
-        disabled: false,
-        employeeId: user.uid,
-        permissions: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      window.location.replace('employee-dashboard.html');
+    const result = await AuthService.signInWithGoogle();
+    let identity = await AuthService.getIdentity(result.user);
+    if (!identity && event.currentTarget.id === 'googleRegisterBtn') {
+      identity = await AuthService.ensureEmployeeProfile(result.user);
     }
+    if (!identity) {
+      await AuthService.signOut();
+      showToast('لا يوجد ملف لهذا الحساب. استخدم التسجيل أو تواصل مع الإدارة.', 'warning');
+      return;
+    }
+    window.location.replace(await routeByRole(result.user));
   } catch (error) {
     let msg = 'فشل تسجيل الدخول عبر Google.';
     if (error.code === 'auth/popup-closed-by-user') msg = 'تم إغلاق النافذة المنبثقة.';
@@ -256,7 +212,7 @@ document.getElementById('forgotPasswordLink')?.addEventListener('click', async (
 
   if (email) {
     try {
-      await sendPasswordResetEmail(auth, email);
+      await AuthService.sendPasswordReset(email);
       showToast('تم إرسال رابط استعادة كلمة المرور.', 'success');
     } catch (error) {
       showToast('حدث خطأ.', 'error');
@@ -267,46 +223,14 @@ document.getElementById('forgotPasswordLink')?.addEventListener('click', async (
 // =============================================================
 // مراقبة المصادقة — التوجيه الذكي حسب نوع المستخدم
 // =============================================================
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) return;
 
   try {
-    // التحقق من نوع المستخدم
-    const userDocSnap = await getDoc(doc(db, 'users', user.uid));
-
-    if (userDocSnap.exists()) {
-      const role = userDocSnap.data().role;
-
-      // مدير أو محاسب → لوحة الإدارة
-      if (role === 'مدير' || role === 'محاسب') {
-        window.location.href = 'dashboard.html';
-        return;
-      }
-
-      // مشرف أو موظف → لوحة الموظف
-      if (role === 'مشرف' || role === 'موظف') {
-        window.location.href = 'employee-dashboard.html';
-        return;
-      }
-
-      // دور غير معروف → لوحة الإدارة (افتراضي)
-      window.location.href = 'dashboard.html';
-      return;
-    }
-
-    // ليس في users — تحقق من customers (عميل)
-    const customerDocSnap = await getDoc(doc(db, 'customers', user.uid));
-    if (customerDocSnap.exists()) {
-      window.location.href = 'portal-dashboard.html';
-      return;
-    }
-
-    // ليس في أي مجموعة — ابقِه في login (نادر)
-    console.warn('User has no document in users or customers');
+    const destination = await routeByRole(user);
+    if (destination !== '/login.html') window.location.replace(destination);
   } catch (error) {
     console.warn('Could not determine user type:', error);
-    // في حال الخطأ، وجّه للوحة الإدارة كافتراضي
-    window.location.href = 'dashboard.html';
   }
 });
 

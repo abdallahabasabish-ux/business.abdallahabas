@@ -8,10 +8,8 @@
 // - لا يصل للبيانات المالية للشركة أو بيانات موظفين آخرين
 // =============================================================
 
-import { auth, db } from './firebase-config.js';
-import {
-  onAuthStateChanged, signOut,
-} from 'firebase/auth';
+import { FirebaseInit, AuthService } from './core/app-core.js';
+const { auth, db } = FirebaseInit;
 import {
   collection, query, where, orderBy, onSnapshot,
   doc, getDoc,
@@ -92,7 +90,7 @@ let currentUid = null;
 let tasksListener = null;
 let ledgerListener = null;
 
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) {
     window.location.href = 'login.html';
     return;
@@ -140,7 +138,7 @@ onAuthStateChanged(auth, async (user) => {
 
   // زر الخروج
   document.getElementById('empLogoutBtn')?.addEventListener('click', async () => {
-    try { await signOut(auth); } catch (e) {}
+    try { await AuthService.signOut(); } catch (e) {}
     window.location.href = 'login.html';
   });
 });

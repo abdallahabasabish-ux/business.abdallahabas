@@ -2,10 +2,8 @@
 // portal-payments.js — مدفوعات العميل + رفع إثبات الدفع
 // =============================================================
 
-import { auth, db, storage } from './firebase-config.js';
-import {
-  onAuthStateChanged, signOut,
-} from 'firebase/auth';
+import { FirebaseInit, AuthService } from './core/app-core.js';
+const { auth, db, storage } = FirebaseInit;
 import {
   collection, query, where, orderBy, onSnapshot,
   addDoc, serverTimestamp, getDocs, doc, getDoc,
@@ -36,6 +34,18 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = String(text);
   return div.innerHTML;
+}
+
+function safeReceiptUrl(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'firebasestorage.googleapis.com'
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function showToast(message, type = 'success') {
@@ -73,7 +83,7 @@ let currentCustomerUid = null;
 let selectedFile = null;
 let ordersCache = [];
 
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) {
     window.location.href = 'portal-login.html';
     return;
@@ -87,7 +97,7 @@ onAuthStateChanged(auth, async (user) => {
   // زر الخروج
   document.getElementById('portalLogoutBtn')?.addEventListener('click', async (e) => {
     e.preventDefault();
-    await signOut(auth);
+    await AuthService.signOut();
     window.location.href = 'portal-login.html';
   });
 
@@ -405,6 +415,7 @@ function renderPayments(payments) {
   let html = '';
   for (const p of payments) {
     const order = ordersCache.find((o) => o.id === p.orderId);
+    const receiptUrl = safeReceiptUrl(p.receiptUrl);
     const orderDisplay = order
       ? `#${order.orderNumber || 'N/A'}`
       : (p.orderId ? 'طلب مرتبط' : 'دفعة عامة');
@@ -423,7 +434,7 @@ function renderPayments(payments) {
               <i class="fas fa-calendar me-1"></i>${formatDate(p.paymentDate)}
             </div>
             ${p.notes ? `<div class="text-muted small mt-1">ملاحظات: ${escapeHtml(p.notes)}</div>` : ''}
-            ${p.receiptUrl ? `<a href="${p.receiptUrl}" target="_blank" class="btn btn-sm btn-outline-primary mt-2"><i class="fas fa-file me-1"></i>عرض الإثبات</a>` : ''}
+            ${receiptUrl ? `<a href="${escapeHtml(receiptUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary mt-2"><i class="fas fa-file me-1"></i>عرض الإثبات</a>` : ''}
           </div>
         </div>
       </div>

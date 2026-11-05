@@ -8,12 +8,11 @@
 //   <script type="module" src="assets/js/sidebar-bootstrap.js"></script>
 // =============================================================
 
-import { auth } from './firebase-config.js';
-import { onAuthStateChanged } from 'firebase/auth';
+import { AuthService } from './core/app-core.js';
 import { initPermissions, stopPermissions } from './permissions.js';
 import { initDynamicSidebar } from './sidebar.js';
 
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) {
     stopPermissions();
     return;
@@ -90,7 +89,7 @@ initDarkMode();
 initMobileSidebar();
 
 // تحديث بيانات المستخدم في القائمة عند توفرها
-onAuthStateChanged(auth, (user) => {
+AuthService.onStateChanged((user) => {
   if (!user) return;
 
   const sidebarUserName = document.getElementById('sidebarUserName');

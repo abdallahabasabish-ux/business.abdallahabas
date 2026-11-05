@@ -5,15 +5,14 @@
 // بدلاً من عرض كل المراحل الداخلية
 // =============================================================
 
-import { auth, db } from './firebase-config.js';
-import {
-  onAuthStateChanged, signOut,
-} from 'firebase/auth';
+import { FirebaseInit, AuthService } from './core/app-core.js';
+const { auth, db } = FirebaseInit;
 import {
   collection, query, where, orderBy, onSnapshot,
-  addDoc, serverTimestamp, getDocs,
+  getDocs,
 } from 'firebase/firestore';
 import { ensureCustomerSession } from './portal-session.js';
+import { OrderService } from './core/business-services.js';
 
 function formatCurrency(amount, currency = '$') {
   if (amount === undefined || amount === null || isNaN(amount)) return `${currency}0.00`;
@@ -62,7 +61,7 @@ function statusBadge(status) {
 
 let currentCustomerUid = null;
 
-onAuthStateChanged(auth, async (user) => {
+AuthService.onStateChanged(async (user) => {
   if (!user) {
     window.location.href = 'portal-login.html';
     return;
@@ -75,7 +74,7 @@ onAuthStateChanged(auth, async (user) => {
 
   document.getElementById('portalLogoutBtn')?.addEventListener('click', async (e) => {
     e.preventDefault();
-    await signOut(auth);
+    await AuthService.signOut();
     window.location.href = 'portal-login.html';
   });
 
@@ -146,10 +145,8 @@ async function submitNewOrder(e) {
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const orderNumber = `PORTAL-${dateStr}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
-    await addDoc(collection(db, 'orders'), {
+    await OrderService.createClientOrder(currentCustomerUid, {
       orderNumber,
-      customerUid: currentCustomerUid,
-      customerId: currentCustomerUid,
       serviceId,
       description,
       price: 0,
@@ -164,8 +161,6 @@ async function submitNewOrder(e) {
       completionRate: 0,
       deadline: expectedDate || null,
       expectedDeliveryDate: expectedDate || null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
       lifecycleStage: 'inquiry',
       approvalStatus: 'pending',
       source: 'portal',
